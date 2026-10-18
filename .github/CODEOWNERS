@@ -1,0 +1,28 @@
+# Code ownership for the TECH5 DSS repo.
+#
+# Team A: @TEAM_A_1 @TEAM_A_2 (visualization)
+# Team B: @TEAM_B_1 @TEAM_B_2 (engine)
+#
+# Shared paths list all four members. A PR touching them needs one approval
+# from each team (see docs/git_workflow.md). GitHub itself only requires one
+# listed owner per path, so the second-team approval is checked by reviewers.
+# The last matching pattern wins.
+
+# Team A
+/app/visualization/                     @TEAM_A_1 @TEAM_A_2
+/tests/test_visualization_component.py  @TEAM_A_1 @TEAM_A_2
+
+# Team B
+/app/engine/                            @TEAM_B_1 @TEAM_B_2
+/tests/test_solvers.py                  @TEAM_B_1 @TEAM_B_2
+/tests/test_metrics.py                  @TEAM_B_1 @TEAM_B_2
+/tests/test_edge_cases.py               @TEAM_B_1 @TEAM_B_2
+
+# Shared (both teams)
+/app/contract/                          @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/app/domain/                            @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/app/persistence/                       @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/app/samples/                           @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/tests/test_contract_and_engine.py      @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/tests/test_component_integration.py    @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/docs/                                  @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
