@@ -1,6 +1,6 @@
 # Code ownership for the TECH5 DSS repo.
 #
-# Team A: @TEAM_A_1 @TEAM_A_2 (visualization)
+# Team A: @rymmd @Zw211 (visualization)
 # Team B: @TEAM_B_1 @TEAM_B_2 (engine)
 #
 # Shared paths list all four members. A PR touching them needs one approval
@@ -9,8 +9,8 @@
 # The last matching pattern wins.
 
 # Team A
-/app/visualization/                     @TEAM_A_1 @TEAM_A_2
-/tests/test_visualization_component.py  @TEAM_A_1 @TEAM_A_2
+/app/visualization/                     @rymmd @Zw211
+/tests/test_visualization_component.py  @rymmd @Zw211
 
 # Team B
 /app/engine/                            @TEAM_B_1 @TEAM_B_2
@@ -19,10 +19,10 @@
 /tests/test_edge_cases.py               @TEAM_B_1 @TEAM_B_2
 
 # Shared (both teams)
-/app/contract/                          @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
-/app/domain/                            @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
-/app/persistence/                       @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
-/app/samples/                           @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
-/tests/test_contract_and_engine.py      @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
-/tests/test_component_integration.py    @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
-/docs/                                  @TEAM_A_1 @TEAM_A_2 @TEAM_B_1 @TEAM_B_2
+/app/contract/                          @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2
+/app/domain/                            @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2
+/app/persistence/                       @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2
+/app/samples/                           @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2
+/tests/test_contract_and_engine.py      @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2
+/tests/test_component_integration.py    @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2
+/docs/                                  @rymmd @Zw211 @TEAM_B_1 @TEAM_B_2

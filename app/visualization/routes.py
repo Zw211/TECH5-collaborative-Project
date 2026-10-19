@@ -7,6 +7,7 @@ triggering, multi-solution visual comparisons, and recommendations.
 import collections
 import csv
 import io
+import re
 import sqlite3
 from typing import Any
 
@@ -22,6 +23,8 @@ from app.samples import demo_data
 from app.visualization import auth
 
 web_bp = flask.Blueprint("visualization_web", __name__)
+
+_SKILL_ID_PATTERN = re.compile(r"[a-z0-9_]+")
 
 
 @web_bp.app_context_processor
@@ -443,35 +446,171 @@ def delete_project(project_id: str) -> flask.Response:
 # -----------------------------------------------------------------------------
 
 
+def _validate_skill_input(
+    skill_id: str,
+    name: str,
+    existing_skills: list[models.Skill],
+) -> tuple[str, list[str]]:
+    """Normalizes and validates the input of a new skill.
+
+    The identifier is stripped and lowercased before it is checked, so that
+    "  PY " is stored as "py". Duplicate names are detected case-insensitively.
+
+    Args:
+        skill_id: Raw skill identifier from user input.
+        name: Raw skill name from user input.
+        existing_skills: Skills already present in the catalog.
+
+    Returns:
+        A tuple of (normalized_skill_id, error_messages). The list of error
+        messages is empty when the input is valid.
+    """
+    norm_id = skill_id.strip().lower()
+    norm_name = name.strip()
+    errors: list[str] = []
+
+    if not norm_id:
+        errors.append("Skill ID cannot be empty.")
+    elif not _SKILL_ID_PATTERN.fullmatch(norm_id):
+        errors.append(
+            f"Invalid skill ID '{norm_id}': use only lowercase letters, "
+            "digits and underscores."
+        )
+    elif any(s.id == norm_id for s in existing_skills):
+        errors.append(f"Skill ID '{norm_id}' already exists.")
+
+    if not norm_name:
+        errors.append("Skill name cannot be empty.")
+    elif norm_name.casefold() in {s.name.casefold() for s in existing_skills}:
+        errors.append(f"Skill name '{norm_name}' already exists.")
+
+    return norm_id, errors
+
+
+def _compute_skill_usage(
+    skills: list[models.Skill],
+    projects: list[models.Project],
+    students: list[models.Student],
+) -> dict[str, dict[str, Any]]:
+    """Computes where each skill is used across projects and students.
+
+    Args:
+        skills: Skills of the catalog.
+        projects: All projects with their requirements.
+        students: All students with their proficiencies.
+
+    Returns:
+        A map of skill ID to a dict with the keys "projects" (IDs of the
+        projects requiring the skill), "mandatory" (IDs of the projects
+        requiring it as mandatory) and "students" (number of students with
+        a proficiency level above zero).
+    """
+    usage: dict[str, dict[str, Any]] = {
+        s.id: {"projects": [], "mandatory": [], "students": 0}
+        for s in skills
+    }
+    for project in projects:
+        for req in project.requirements:
+            entry = usage.get(req.skill_id)
+            if entry is None:
+                continue
+            entry["projects"].append(project.id)
+            if req.is_mandatory:
+                entry["mandatory"].append(project.id)
+    for student in students:
+        for skill_id, level in student.skills.items():
+            if level > 0 and skill_id in usage:
+                usage[skill_id]["students"] += 1
+    return usage
+
+
 @web_bp.get("/skills")
 def list_skills() -> str:
-    """Lists skill catalog records."""
+    """Lists skill catalog records with their usage across the cohort."""
     skills = repositories.SkillRepository().list_all()
-    return flask.render_template("skills.html", skills=skills)
+    projects = repositories.ProjectRepository().list_all()
+    students = repositories.StudentRepository().list_all()
+    return flask.render_template(
+        "skills.html",
+        skills=skills,
+        usage=_compute_skill_usage(skills, projects, students),
+    )
 
 
 @web_bp.post("/skills/new")
 def create_skill() -> flask.Response:
-    """Creates a new skill record.
+    """Creates a new skill record."""
+    target = flask.url_for("visualization_web.list_skills")
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied for current role.", "danger")
+        return flask.redirect(target)
 
-    Raises:
-        NotImplementedError: To be implemented by Team A.
-    """
-    raise NotImplementedError(
-        "TODO (Team A): Implement skill creation"
-    )
+    raw_id = flask.request.form.get("id", "")
+    name = flask.request.form.get("name", "").strip()
+    description = flask.request.form.get("description", "").strip()
+
+    repo = repositories.SkillRepository()
+    skill_id, errors = _validate_skill_input(raw_id, name, repo.list_all())
+    if errors:
+        for message in errors:
+            flask.flash(message, "danger")
+        return flask.redirect(target)
+
+    try:
+        repo.save(
+            models.Skill(id=skill_id, name=name, description=description)
+        )
+    except sqlite3.IntegrityError as exc:
+        flask.flash(
+            f"Database constraint error while saving skill: {exc}",
+            "danger",
+        )
+        return flask.redirect(target)
+
+    flask.flash(f"Skill '{name}' ({skill_id}) created successfully.", "success")
+    return flask.redirect(target)
 
 
 @web_bp.post("/skills/<skill_id>/delete")
 def delete_skill(skill_id: str) -> flask.Response:
-    """Deletes a skill record.
+    """Deletes a skill record and reports the requirements removed with it."""
+    target = flask.url_for("visualization_web.list_skills")
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied for current role.", "danger")
+        return flask.redirect(target)
 
-    Raises:
-        NotImplementedError: To be implemented by Team A.
-    """
-    raise NotImplementedError(
-        "TODO (Team A): Implement skill deletion"
-    )
+    repo = repositories.SkillRepository()
+    if repo.get_by_id(skill_id) is None:
+        flask.flash(f"Skill '{skill_id}' not found.", "warning")
+        return flask.redirect(target)
+
+    # Measure the impact first: the schema cascades the deletion into
+    # project requirements and student proficiencies.
+    usage = _compute_skill_usage(
+        repo.list_all(),
+        repositories.ProjectRepository().list_all(),
+        repositories.StudentRepository().list_all(),
+    )[skill_id]
+    repo.delete(skill_id)
+
+    parts = [f"Skill '{skill_id}' deleted."]
+    if usage["projects"]:
+        parts.append(
+            f"Removed from project(s): {', '.join(usage['projects'])}."
+        )
+    if usage["students"]:
+        parts.append(f"{usage['students']} student(s) lost this proficiency.")
+    flask.flash(" ".join(parts), "info")
+
+    if usage["mandatory"]:
+        flask.flash(
+            f"Warning: skill '{skill_id}' was a MANDATORY requirement of "
+            f"project(s): {', '.join(usage['mandatory'])}. These "
+            "requirements were removed, which changes feasibility of future "
+            "runs; previous results may no longer be valid.",
+            "warning",
+        )
+    return flask.redirect(target)
 
 
 @web_bp.get("/preferences")
