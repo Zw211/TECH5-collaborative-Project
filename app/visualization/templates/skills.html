@@ -9,12 +9,6 @@
       <h2 class="card-title">Competence & Skill Catalog</h2>
     </div>
     <div class="card-body">
-      <!-- TODO (Team A): Implement Competence & Skill Catalog Display -->
-      <div class="alert alert-info" style="margin-bottom: 1rem;">
-        <strong>Team A Starter Carcass:</strong>
-        Render the catalogued skills with their identifier, title, and description.
-      </div>
-
       {% if skills %}
         <div class="table-responsive">
           <table class="data-table">
@@ -23,19 +17,29 @@
                 <th>Code</th>
                 <th>Name</th>
                 <th>Description</th>
+                <th>Used by</th>
                 {% if can_edit %}<th>Action</th>{% endif %}
               </tr>
             </thead>
             <tbody>
               {% for sk in skills %}
+                {% set u = usage[sk.id] %}
+                {% set usage_text = u.projects|length ~ ' project(s) (' ~ u.mandatory|length ~ ' mandatory), ' ~ u.students ~ ' student(s)' %}
                 <tr>
                   <td><code>{{ sk.id }}</code></td>
                   <td><strong>{{ sk.name }}</strong></td>
                   <td>{{ sk.description }}</td>
+                  <td>
+                    {% if u.projects or u.students %}
+                      {{ u.projects|length }} project{{ '' if u.projects|length == 1 else 's' }}{% if u.mandatory %}, of which {{ u.mandatory|length }} mandatory{% endif %};
+                      {{ u.students }} student{{ '' if u.students == 1 else 's' }}
+                    {% else %}
+                      <span style="color: var(--text-muted);">Unused</span>
+                    {% endif %}
+                  </td>
                   {% if can_edit %}
                     <td>
-                      <!-- TODO (Team A): Delete skill action -->
-                      <form action="{{ url_for('visualization_web.delete_skill', skill_id=sk.id) }}" method="POST" onsubmit="return confirm('Delete skill {{ sk.id }}?');">
+                      <form action="{{ url_for('visualization_web.delete_skill', skill_id=sk.id) }}" method="POST" onsubmit='return confirm({{ ("Delete skill " ~ sk.id ~ "? It is used by " ~ usage_text ~ ". These project requirements and student proficiencies will be removed too.")|tojson }});'>
                         <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                       </form>
                     </td>
@@ -58,7 +62,6 @@
       <h2 class="card-title">+ Add New Skill</h2>
     </div>
     <div class="card-body">
-      <!-- TODO (Team A): Implement Skill Creation Form -->
       {% if can_edit %}
         <form action="{{ url_for('visualization_web.create_skill') }}" method="POST">
           <div class="form-group">
