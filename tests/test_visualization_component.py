@@ -406,27 +406,112 @@ def test_validate_skill_input_helper() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team A): Implement project CRUD",
-)
 def test_projects_crud_workflow(tmp_path: pathlib.Path) -> None:
-    """Verifies project addition workflow (Team A implementation)."""
+    """Verifies project creation, validation, editing and deletion."""
     db_file = tmp_path / "test_proj.db"
     app = create_app({"TESTING": True, "DATABASE_PATH": db_file})
     client = app.test_client()
+    repositories.SkillRepository().save(
+        models.Skill(id="py", name="Python", description="")
+    )
+    project_data = {
+        "id": "P1",
+        "title": "FinTech Risk",
+        "description": "Risk analytics",
+        "min_capacity": 1,
+        "max_capacity": 2,
+        "req_level_py": 3,
+        "req_mand_py": "1",
+    }
 
-    client.post(
+    # 1. Valid project is created with its requirement and shown
+    res = client.post("/projects/new", data=project_data, follow_redirects=True)
+    assert b"created successfully" in res.data
+    assert b"Python &ge; 3" in res.data
+    saved = repositories.ProjectRepository().get_by_id("P1")
+    assert saved is not None
+    assert saved.max_capacity == 2
+    assert saved.requirements[0].minimum_level == 3
+    assert saved.requirements[0].is_mandatory
+
+    # 2. Duplicate identifier is rejected and does not overwrite
+    res_dup = client.post(
+        "/projects/new",
+        data={**project_data, "title": "Overwritten"},
+        follow_redirects=True,
+    )
+    assert b"already exists" in res_dup.data
+    assert repositories.ProjectRepository().get_by_id("P1").title == (
+        "FinTech Risk"
+    )
+
+    # 3. Invalid capacities and mandatory-without-level are rejected
+    res_bad = client.post(
         "/projects/new",
         data={
-            "id": "P1",
-            "title": "FinTech Risk",
-            "description": "Risk analytics",
-            "min_capacity": 1,
+            "id": "P2",
+            "title": "Bad",
+            "min_capacity": 3,
             "max_capacity": 2,
+            "req_level_py": 0,
+            "req_mand_py": "1",
         },
         follow_redirects=True,
     )
+    assert b"cannot exceed maximum" in res_bad.data
+    assert b"marked mandatory but has no required level" in res_bad.data
+    assert repositories.ProjectRepository().get_by_id("P2") is None
+
+    # 4. Edit form shows saved values; update replaces requirements
+    res_form = client.get("/projects/P1/edit")
+    assert b'name="req_level_py" min="0" max="5"' in res_form.data
+    assert b'value="3"' in res_form.data
+    assert b"checked" in res_form.data
+    client.post(
+        "/projects/P1/edit",
+        data={
+            "id": "IGNORED",
+            "title": "FinTech Risk II",
+            "min_capacity": 0,
+            "max_capacity": 4,
+            "req_level_py": 0,
+        },
+        follow_redirects=True,
+    )
+    updated = repositories.ProjectRepository().get_by_id("P1")
+    assert updated.title == "FinTech Risk II"
+    assert updated.max_capacity == 4
+    assert updated.requirements == []
+    assert repositories.ProjectRepository().get_by_id("IGNORED") is None
+
+    # 5. Student viewers cannot create, edit or delete projects
+    client.post("/set-role", data={"role": "STUDENT"})
+    client.post(
+        "/projects/new", data={**project_data, "id": "P3"},
+        follow_redirects=True,
+    )
+    client.post("/projects/P1/delete", follow_redirects=True)
+    assert repositories.ProjectRepository().get_by_id("P3") is None
+    assert repositories.ProjectRepository().get_by_id("P1") is not None
+    client.post("/set-role", data={"role": "ADMIN"})
+
+    # 6. Catalog warns about cascading records before deleting
+    repositories.StudentRepository().save(
+        models.Student(
+            id="S1",
+            display_name="Alice",
+            preferences=[models.Preference("S1", "P1", 1)],
+        )
+    )
+    res_list = client.get("/projects")
+    assert b"1 student preference(s), 0 fixed assignment(s)" in res_list.data
+
+    # 7. Deleting removes the project; deleting again reports not found
+    res_del = client.post("/projects/P1/delete", follow_redirects=True)
+    assert b"removed" in res_del.data
+    assert repositories.ProjectRepository().get_by_id("P1") is None
+    res_missing = client.post("/projects/P1/delete", follow_redirects=True)
+    assert b"not found" in res_missing.data
 
 
 @pytest.mark.xfail(

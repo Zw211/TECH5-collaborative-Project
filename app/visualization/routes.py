@@ -21,6 +21,7 @@ from app.engine import solvers
 from app.persistence import repositories
 from app.samples import demo_data
 from app.visualization import auth
+from app.visualization import forms
 
 web_bp = flask.Blueprint("visualization_web", __name__)
 
@@ -378,8 +379,33 @@ def list_projects() -> str:
     projects = repositories.ProjectRepository().list_all()
     skills = repositories.SkillRepository().list_all()
     return flask.render_template(
-        "projects.html", projects=projects, skills=skills
+        "projects.html",
+        projects=projects,
+        skills=skills,
+        skill_names={sk.id: sk.name for sk in skills},
+        usage=_project_usage(),
     )
+
+
+def _project_usage() -> dict[str, dict[str, int]]:
+    """Counts the records that reference each project.
+
+    Deleting a project cascades to these records, so the catalog shows the
+    counts in the delete confirmation.
+
+    Returns:
+        Mapping of project ID to counts of student preferences ranking the
+        project and fixed assignments to it.
+    """
+    usage: dict[str, dict[str, int]] = collections.defaultdict(
+        lambda: {"preferences": 0, "fixed": 0}
+    )
+    for student in repositories.StudentRepository().list_all():
+        for pref in student.preferences:
+            usage[pref.project_id]["preferences"] += 1
+    for fixed in repositories.FixedAssignmentRepository().list_all():
+        usage[fixed.project_id]["fixed"] += 1
+    return dict(usage)
 
 
 @web_bp.get("/projects/new")
@@ -387,20 +413,48 @@ def new_project_form() -> str:
     """Displays form to create a semester project."""
     skills = repositories.SkillRepository().list_all()
     return flask.render_template(
-        "project_form.html", project=None, skills=skills
+        "project_form.html", project=None, skills=skills, req_by_skill={}
     )
 
 
 @web_bp.post("/projects/new")
 def create_project() -> flask.Response:
-    """Processes creation of a project.
+    """Processes creation of a project and its skill requirements."""
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied for current role.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.list_projects"))
 
-    Raises:
-        NotImplementedError: To be implemented by Team A.
-    """
-    raise NotImplementedError(
-        "TODO (Team A): Implement project creation and requirement parsing"
+    skills = repositories.SkillRepository().list_all()
+    form = forms.ProjectForm(flask.request.form, [sk.id for sk in skills])
+    project = form.to_project()
+    if project is None:
+        for error in form.errors:
+            flask.flash(error, "warning")
+        return flask.redirect(
+            flask.url_for("visualization_web.new_project_form")
+        )
+
+    repo = repositories.ProjectRepository()
+    # save() is an upsert, so an existing ID would be silently overwritten.
+    if repo.get_by_id(project.id) is not None:
+        flask.flash(f"Project '{project.id}' already exists.", "danger")
+        return flask.redirect(
+            flask.url_for("visualization_web.new_project_form")
+        )
+
+    try:
+        repo.save(project)
+    except sqlite3.Error as exc:
+        flask.flash(f"Database error while saving project: {exc}", "danger")
+        return flask.redirect(
+            flask.url_for("visualization_web.new_project_form")
+        )
+
+    flask.flash(
+        f"Project '{project.title}' ({project.id}) created successfully.",
+        "success",
     )
+    return flask.redirect(flask.url_for("visualization_web.list_projects"))
 
 
 @web_bp.get("/projects/<project_id>/edit")
@@ -413,32 +467,70 @@ def edit_project_form(project_id: str) -> Any:
 
     skills = repositories.SkillRepository().list_all()
     return flask.render_template(
-        "project_form.html", project=project, skills=skills
+        "project_form.html",
+        project=project,
+        skills=skills,
+        req_by_skill={req.skill_id: req for req in project.requirements},
     )
 
 
 @web_bp.post("/projects/<project_id>/edit")
 def update_project(project_id: str) -> flask.Response:
-    """Updates an existing project entity.
+    """Updates an existing project and replaces its skill requirements."""
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied for current role.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.list_projects"))
 
-    Raises:
-        NotImplementedError: To be implemented by Team A.
-    """
-    raise NotImplementedError(
-        "TODO (Team A): Implement project update and requirement parsing"
+    repo = repositories.ProjectRepository()
+    if repo.get_by_id(project_id) is None:
+        flask.flash(f"Project '{project_id}' not found.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.list_projects"))
+
+    skills = repositories.SkillRepository().list_all()
+    form = forms.ProjectForm(
+        flask.request.form, [sk.id for sk in skills], project_id=project_id
     )
+    project = form.to_project()
+    if project is None:
+        for error in form.errors:
+            flask.flash(error, "warning")
+        return flask.redirect(
+            flask.url_for(
+                "visualization_web.edit_project_form", project_id=project_id
+            )
+        )
+
+    try:
+        repo.save(project)
+    except sqlite3.Error as exc:
+        flask.flash(f"Database error while updating project: {exc}", "danger")
+        return flask.redirect(
+            flask.url_for(
+                "visualization_web.edit_project_form", project_id=project_id
+            )
+        )
+
+    flask.flash(f"Project '{project_id}' updated.", "success")
+    return flask.redirect(flask.url_for("visualization_web.list_projects"))
 
 
 @web_bp.post("/projects/<project_id>/delete")
 def delete_project(project_id: str) -> flask.Response:
     """Deletes a project.
 
-    Raises:
-        NotImplementedError: To be implemented by Team A.
+    The database cascades the delete to the project's requirements, student
+    preferences for it, fixed assignments to it and its assignments in saved
+    runs. The catalog warns about this before the form is submitted.
     """
-    raise NotImplementedError(
-        "TODO (Team A): Implement project deletion"
-    )
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied for current role.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.list_projects"))
+
+    if repositories.ProjectRepository().delete(project_id):
+        flask.flash(f"Project '{project_id}' removed.", "info")
+    else:
+        flask.flash(f"Project '{project_id}' not found.", "warning")
+    return flask.redirect(flask.url_for("visualization_web.list_projects"))
 
 
 # -----------------------------------------------------------------------------
