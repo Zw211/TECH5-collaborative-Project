@@ -80,6 +80,17 @@
     <!-- Retained Alternative Solutions -->
     <h3 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem;">Generated Feasible Solutions</h3>
 
+    {% if run.solutions|length >= 2 %}
+      <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+        <strong>Compare:</strong>
+        {% for alt in run.solutions[1:] %}
+          <a href="{{ url_for('visualization_web.compare_solutions', sol1=run.solutions[0].id, sol2=alt.id) }}" class="btn btn-sm btn-secondary">
+            Compare Alt {{ run.solutions[0].alternative_number }} vs Alt {{ alt.alternative_number }}
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+
     {% if run.solutions %}
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
         {% for s in run.solutions %}

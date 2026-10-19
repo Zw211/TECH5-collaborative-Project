@@ -19,9 +19,10 @@
       <div style="flex: 1; min-width: 250px;">
         <label class="form-label" for="sol1">Baseline Solution (A):</label>
         <select name="sol1" id="sol1" class="form-control">
+          <option value="" {% if not sol_a %}selected{% endif %}>&mdash; select &mdash;</option>
           {% for s in all_solutions %}
             <option value="{{ s.id }}" {% if sol_a and sol_a.id == s.id %}selected{% endif %}>
-              Alt #{{ s.alternative_number }} &ndash; {{ s.strategy_name }} (Run: {{ s.run_id[:8] }})
+              {{ s.label }}
             </option>
           {% endfor %}
         </select>
@@ -30,9 +31,10 @@
       <div style="flex: 1; min-width: 250px;">
         <label class="form-label" for="sol2">Comparison Solution (B):</label>
         <select name="sol2" id="sol2" class="form-control">
+          <option value="" {% if not sol_b %}selected{% endif %}>&mdash; select &mdash;</option>
           {% for s in all_solutions %}
             <option value="{{ s.id }}" {% if sol_b and sol_b.id == s.id %}selected{% endif %}>
-              Alt #{{ s.alternative_number }} &ndash; {{ s.strategy_name }} (Run: {{ s.run_id[:8] }})
+              {{ s.label }}
             </option>
           {% endfor %}
         </select>
@@ -43,13 +45,15 @@
       </button>
     </form>
 
-    <!-- TODO (Team A): Implement Side-by-Side Solution Comparison -->
-    <div class="alert alert-info" style="margin-bottom: 1.5rem;">
-      <strong>Team A Starter Carcass:</strong>
-      Implement the comparative analysis view below using the <code>RunComparison</code> DTO.
-      Display comparative delta metrics (skill fit, preference rank, Gini), trade-off findings,
-      and the table of changed student allocations between Solution A and Solution B.
-    </div>
+    {% if not all_solutions %}
+      <div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+        <strong>No solutions to compare yet.</strong>
+        Load a <a href="{{ url_for('visualization_web.scenarios_page') }}">benchmark scenario</a>,
+        then trigger an optimization run from the
+        <a href="{{ url_for('visualization_web.dashboard') }}">dashboard</a>.
+        Each run produces several alternatives you can compare here.
+      </div>
+    {% endif %}
 
     {% if comparison and sol_a and sol_b %}
       <!-- Comparative KPI Deltas -->
@@ -91,6 +95,20 @@
           </span>
           <span class="kpi-sub">{{ comparison.rank_improved_count }} improved, {{ comparison.rank_worsened_count }} worsened</span>
         </div>
+
+        {% set gini = comparison.delta_metrics.get('gini_delta') %}
+        <div class="kpi-card">
+          <span class="kpi-label">&Delta; Rank Gini (Fairness)</span>
+          {% if gini is none %}
+            <span class="kpi-value">n/a</span>
+            <span class="kpi-sub">Not reported by the engine</span>
+          {% else %}
+            <span class="kpi-value {% if gini < 0 %}text-success{% elif gini > 0 %}text-danger{% endif %}">
+              {% if gini > 0 %}+{% endif %}{{ gini }}
+            </span>
+            <span class="kpi-sub">Lower is fairer</span>
+          {% endif %}
+        </div>
       </div>
 
       <!-- Trade-off Analytical Summary -->
@@ -124,17 +142,11 @@
               <tr>
                 <td><strong>{{ c.student_name or c.student_id }}</strong></td>
                 <td>{{ c.project_a_title or c.project_a_id }}</td>
-                <td>Choice #{{ c.rank_a }}</td>
+                <td>{{ c.rank_a_label }}</td>
                 <td>{{ c.project_b_title or c.project_b_id }}</td>
-                <td>Choice #{{ c.rank_b }}</td>
+                <td>{{ c.rank_b_label }}</td>
                 <td>
-                  {% if c.rank_delta < 0 %}
-                    <span class="badge badge-success">&#9650; {{ c.rank_delta|abs }} ranks better</span>
-                  {% elif c.rank_delta > 0 %}
-                    <span class="badge badge-danger">&#9660; {{ c.rank_delta }} ranks worse</span>
-                  {% else %}
-                    <span class="badge badge-secondary">Lateral move</span>
-                  {% endif %}
+                  <span class="badge badge-{{ c.shift_class }}">{{ c.shift_text }}</span>
                 </td>
               </tr>
             {% endfor %}
@@ -147,7 +159,7 @@
       </p>
     {% else %}
       <p style="color: var(--text-muted); text-align: center; padding: 2rem;">
-        Select two solutions above to view comparative trade-offs.
+        {% if all_solutions %}Select two solutions above to view comparative trade-offs.{% else %}Nothing to compare yet.{% endif %}
       </p>
     {% endif %}
   </div>

@@ -1,11 +1,13 @@
 """Tests for Component A (Visualization & Recommendation) web workflows."""
 
+import copy
 import pathlib
 from typing import Any
 
 import pytest
 
 from app import create_app
+from app.contract import mocks
 from app.domain import models
 from app.persistence import repositories
 from app.visualization import routes
@@ -174,7 +176,7 @@ def test_create_student_preference_validation(
     assert saved.preferences[0].project_id == "P1"
 
 
-def _make_skill_client(tmp_path: pathlib.Path, name: str) -> Any:
+def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(
         {"TESTING": True, "DATABASE_PATH": tmp_path / f"{name}.db"}
@@ -189,7 +191,7 @@ def _skill_form(skill_id: str, name: str, description: str = "") -> dict:
 
 def test_skills_crud_workflow(tmp_path: pathlib.Path) -> None:
     """Verifies skill creation and deletion workflow."""
-    client = _make_skill_client(tmp_path, "test_skill")
+    client = _make_client(tmp_path, "test_skill")
 
     res = client.post(
         "/skills/new",
@@ -219,7 +221,7 @@ def test_create_skill_duplicate_id_does_not_overwrite(
     tmp_path: pathlib.Path,
 ) -> None:
     """Verifies a duplicate ID is rejected and the original is kept."""
-    client = _make_skill_client(tmp_path, "test_skill_dup_id")
+    client = _make_client(tmp_path, "test_skill_dup_id")
     client.post("/skills/new", data=_skill_form("py", "Python", "Original"))
 
     res = client.post(
@@ -239,7 +241,7 @@ def test_create_skill_duplicate_name_case_insensitive(
     tmp_path: pathlib.Path,
 ) -> None:
     """Verifies skill names are unique regardless of case."""
-    client = _make_skill_client(tmp_path, "test_skill_dup_name")
+    client = _make_client(tmp_path, "test_skill_dup_name")
     client.post("/skills/new", data=_skill_form("py", "Python"))
 
     res = client.post(
@@ -256,7 +258,7 @@ def test_create_skill_invalid_id_format(
     tmp_path: pathlib.Path, bad_id: str
 ) -> None:
     """Verifies IDs with characters outside [a-z0-9_] are rejected."""
-    client = _make_skill_client(tmp_path, "test_skill_bad_id")
+    client = _make_client(tmp_path, "test_skill_bad_id")
 
     res = client.post(
         "/skills/new",
@@ -269,7 +271,7 @@ def test_create_skill_invalid_id_format(
 
 def test_create_skill_missing_name(tmp_path: pathlib.Path) -> None:
     """Verifies a skill without a name is rejected."""
-    client = _make_skill_client(tmp_path, "test_skill_no_name")
+    client = _make_client(tmp_path, "test_skill_no_name")
 
     res = client.post(
         "/skills/new",
@@ -284,7 +286,7 @@ def test_student_role_cannot_create_or_delete_skill(
     tmp_path: pathlib.Path,
 ) -> None:
     """Verifies the STUDENT role is denied skill modifications."""
-    client = _make_skill_client(tmp_path, "test_skill_perm")
+    client = _make_client(tmp_path, "test_skill_perm")
     client.post("/skills/new", data=_skill_form("py", "Python"))
     client.post("/set-role", data={"role": "STUDENT"})
 
@@ -303,7 +305,7 @@ def test_student_role_cannot_create_or_delete_skill(
 
 def test_delete_unknown_skill(tmp_path: pathlib.Path) -> None:
     """Verifies deleting an unknown skill flashes a warning."""
-    client = _make_skill_client(tmp_path, "test_skill_unknown")
+    client = _make_client(tmp_path, "test_skill_unknown")
 
     res = client.post("/skills/nope/delete", follow_redirects=True)
     assert res.status_code == 200
@@ -344,7 +346,7 @@ def _seed_skill_usage() -> None:
 
 def test_skills_page_shows_usage(tmp_path: pathlib.Path) -> None:
     """Verifies the 'Used by' column reflects projects and students."""
-    client = _make_skill_client(tmp_path, "test_skill_usage")
+    client = _make_client(tmp_path, "test_skill_usage")
     _seed_skill_usage()
 
     res = client.get("/skills")
@@ -357,7 +359,7 @@ def test_delete_mandatory_skill_warns_and_removes_requirement(
     tmp_path: pathlib.Path,
 ) -> None:
     """Verifies deleting a mandatory requirement warns and cascades."""
-    client = _make_skill_client(tmp_path, "test_skill_mandatory")
+    client = _make_client(tmp_path, "test_skill_mandatory")
     _seed_skill_usage()
 
     res = client.post("/skills/py/delete", follow_redirects=True)
@@ -378,7 +380,7 @@ def test_delete_non_mandatory_skill_has_no_mandatory_warning(
     tmp_path: pathlib.Path,
 ) -> None:
     """Verifies no mandatory warning appears for optional requirements."""
-    client = _make_skill_client(tmp_path, "test_skill_optional")
+    client = _make_client(tmp_path, "test_skill_optional")
     _seed_skill_usage()
 
     res = client.post("/skills/sql/delete", follow_redirects=True)
@@ -429,14 +431,185 @@ def test_projects_crud_workflow(tmp_path: pathlib.Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team A): Implement comparison controller & view",
-)
-def test_compare_solutions_view(tmp_path: pathlib.Path) -> None:
-    """Verifies solution comparison controller (Team A implementation)."""
-    db_file = tmp_path / "test_comp.db"
-    app = create_app({"TESTING": True, "DATABASE_PATH": db_file})
-    client = app.test_client()
+def _create_mock_run(client: Any) -> models.AssignmentRun:
+    """Loads the standard scenario and triggers one run; returns that run."""
+    client.post("/load-scenario/standard")
+    client.post("/runs/trigger", data={"max_alternatives": 3})
+    return repositories.RunRepository().list_runs()[0]
 
-    client.get("/compare?sol1=S1&sol2=S2")
+
+def test_compare_solutions_view(tmp_path: pathlib.Path) -> None:
+    """Verifies unknown solution IDs are reported gracefully."""
+    client = _make_client(tmp_path, "test_comp")
+
+    res = client.get("/compare?sol1=S1&sol2=S2")
+    assert res.status_code == 200
+    assert b"Cannot compare" in res.data
+    assert b"not found" in res.data
+
+
+def test_compare_empty_database_shows_guidance(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies the page explains what to do when there are no solutions."""
+    client = _make_client(tmp_path, "test_comp_empty")
+
+    res = client.get("/compare")
+    assert res.status_code == 200
+    assert b"No solutions to compare yet." in res.data
+
+
+def test_compare_two_alternatives_of_a_run(tmp_path: pathlib.Path) -> None:
+    """Verifies a mock run's alternatives can be compared side by side."""
+    client = _make_client(tmp_path, "test_comp_run")
+    run = _create_mock_run(client)
+    alt1, alt2 = run.solutions[0], run.solutions[1]
+
+    res = client.get(f"/compare?sol1={alt1.id}&sol2={alt2.id}")
+    assert res.status_code == 200
+    assert b"Changed Student Allocations" in res.data
+    assert b"Rank Gini" in res.data
+    assert b"Choice #None" not in res.data
+
+    # Names and titles come from the repositories, not the raw IDs.
+    comparison = mocks.MockAssignmentEngine().compare_solutions(
+        alt1.id, alt2.id
+    )
+    first = comparison.changed_assignments[0]
+    student = repositories.StudentRepository().get_by_id(first["student_id"])
+    project = repositories.ProjectRepository().get_by_id(
+        first["project_b_id"]
+    )
+    assert student is not None and project is not None
+    assert student.display_name.encode() in res.data
+    assert project.title.encode() in res.data
+
+
+def test_compare_same_solution_twice_is_identical(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies comparing a solution with itself is flagged as identical."""
+    client = _make_client(tmp_path, "test_comp_same")
+    alt1 = _create_mock_run(client).solutions[0]
+
+    res = client.get(f"/compare?sol1={alt1.id}&sol2={alt1.id}")
+    assert res.status_code == 200
+    assert b"are identical" in res.data
+    assert b"Identical allocation outcomes" in res.data
+
+
+def test_compare_only_sol1_preselects_second_alternative(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies sol2 defaults to another alternative of the same run."""
+    client = _make_client(tmp_path, "test_comp_preselect")
+    run = _create_mock_run(client)
+    alt1, alt2 = run.solutions[0], run.solutions[1]
+
+    res = client.get(f"/compare?sol1={alt1.id}")
+    assert res.status_code == 200
+    assert f'value="{alt2.id}" selected'.encode() in res.data
+    assert b"Changed Student Allocations" in res.data
+
+
+def test_compare_unknown_second_id(tmp_path: pathlib.Path) -> None:
+    """Verifies one unknown ID gives an error flash and no crash."""
+    client = _make_client(tmp_path, "test_comp_unknown")
+    alt1 = _create_mock_run(client).solutions[0]
+
+    res = client.get(f"/compare?sol1={alt1.id}&sol2=nope")
+    assert res.status_code == 200
+    assert b"Cannot compare" in res.data
+    assert b"Changed Student Allocations" not in res.data
+
+
+def test_compare_solutions_from_different_runs_warns(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies a cross-run comparison is allowed but flagged."""
+    client = _make_client(tmp_path, "test_comp_cross")
+    client.post("/load-scenario/standard")
+    client.post("/runs/trigger", data={"max_alternatives": 2})
+    client.post("/runs/trigger", data={"max_alternatives": 2})
+    newer, older = repositories.RunRepository().list_runs()[:2]
+
+    res = client.get(
+        f"/compare?sol1={older.solutions[0].id}"
+        f"&sol2={newer.solutions[0].id}"
+    )
+    assert res.status_code == 200
+    assert b"different runs" in res.data
+    assert b"Changed Student Allocations" in res.data
+
+
+def test_run_detail_links_to_comparisons(tmp_path: pathlib.Path) -> None:
+    """Verifies the run page links the first alternative to the others."""
+    client = _make_client(tmp_path, "test_comp_links")
+    run = _create_mock_run(client)
+
+    res = client.get(f"/runs/{run.id}")
+    assert b"Compare Alt 1 vs Alt 2" in res.data
+    assert b"Compare Alt 1 vs Alt 3" in res.data
+    assert f"sol2={run.solutions[1].id}".encode() in res.data
+
+
+def test_enrich_changed_assignments_handles_unranked() -> None:
+    """Verifies enrichment labels unranked ranks and leaves input intact."""
+    changed = [
+        {
+            "student_id": "S1",
+            "student_name": "S1",
+            "project_a_id": "P1",
+            "project_a_title": "P1",
+            "rank_a": None,
+            "project_b_id": "P9",
+            "project_b_title": "P9",
+            "rank_b": 2,
+            "rank_delta": -97,
+        }
+    ]
+    snapshot = copy.deepcopy(changed)
+    students = {"S1": models.Student(id="S1", display_name="Alice")}
+    projects = {"P1": models.Project(id="P1", title="Project One")}
+
+    rows = routes._enrich_changed_assignments(changed, students, projects)
+
+    assert changed == snapshot
+    assert rows[0]["student_name"] == "Alice"
+    assert rows[0]["project_a_title"] == "Project One"
+    assert rows[0]["project_b_title"] == "P9"
+    assert rows[0]["rank_a_label"] == "Unranked"
+    assert rows[0]["rank_b_label"] == "Choice #2"
+    assert rows[0]["shift_text"] == "Ranked in B (was unranked)"
+    assert rows[0]["shift_class"] == "success"
+
+
+@pytest.mark.parametrize(
+    ("rank_a", "rank_b", "text", "css"),
+    [
+        (3, 1, "\u25b2 2 ranks better", "success"),
+        (1, 2, "\u25bc 1 rank worse", "danger"),
+        (2, 2, "Lateral move", "secondary"),
+        (2, None, "Unranked in B", "danger"),
+        (None, None, "Both unranked", "secondary"),
+    ],
+)
+def test_describe_rank_shift(
+    rank_a: int | None, rank_b: int | None, text: str, css: str
+) -> None:
+    """Verifies the rank shift wording for ranked and unranked moves."""
+    assert routes._describe_rank_shift(rank_a, rank_b) == (text, css)
+
+
+def test_pick_default_partner() -> None:
+    """Verifies the partner is the next alternative of the same run."""
+    options = [
+        {"id": "a1", "run_id": "R1", "alternative_number": 1},
+        {"id": "a2", "run_id": "R1", "alternative_number": 2},
+        {"id": "a3", "run_id": "R1", "alternative_number": 3},
+        {"id": "b1", "run_id": "R2", "alternative_number": 1},
+    ]
+    assert routes._pick_default_partner("a1", options) == "a2"
+    assert routes._pick_default_partner("a3", options) == "a1"
+    assert routes._pick_default_partner("b1", options) is None
+    assert routes._pick_default_partner("zzz", options) is None
