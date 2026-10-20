@@ -192,7 +192,7 @@ class AssignmentEngine(contract.AssignmentEngineContract):
         req = contract.RunRequest(
             students=students,
             projects=projects,
-            skills=skills or [],
+            skills=skills,
             fixed_assignments=fixed_assignments or [],
             strategy_key=strategy_name,
             max_alternatives=max_alternatives,

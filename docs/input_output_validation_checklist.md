@@ -108,7 +108,7 @@ and form tests. All use synthetic records.
 - [x] SKILL-02 **Invalid student skill levels** - stored levels must be integers from 1 to 5. Reject missing values, text, floats, booleans, and values outside the range. A missing skill is an omitted dictionary entry, not a stored zero.
 - [x] SKILL-03 **Invalid project requirement levels** - require integers from 1 to 5; reject other values before mandatory matching.
 - [x] SKILL-04 **Unknown skills** - reject profile and requirement references missing from a supplied catalogue, naming the student/project and skill. Forms also reject unknown skill fields instead of silently dropping them.
-- [x] SKILL-05 **Absent or empty catalogue** - omitted `None` preserves the optional contract: warn when references cannot be checked. An explicit empty list rejects all skill references. Either is accepted without a catalogue warning when no skills are used.
+- [x] SKILL-05 **Absent or empty catalogue** - omitted `None` preserves the optional contract: warn when references cannot be checked. An explicit empty list rejects all skill references. Either is accepted without a catalogue warning when no skills are used. The convenience `run_assignment()` method preserves this distinction too.
 - [x] SKILL-06 **No project skill requirements** - accept the project and return skill fit `1.0` with no unmet skills. Scoring nonempty requirements remains unfinished in `metrics.py`.
 - [x] SKILL-07 **Repeated or conflicting requirements** - reject both identical and conflicting duplicates for correction; leave the submitted list unchanged.
 - [x] SKILL-08 **Invalid mandatory flag** - domain objects require real `True`/`False` values. Forms accept only an unchecked box (missing/empty) or checked values `1`/`on`; reject other text, including `"false"`.
@@ -122,6 +122,8 @@ scoring formula or mandatory team-coverage policy is introduced here.
 
 Evidence: `tests/test_skill_validation.py` (67 examples), plus form, contract,
 and database-backed web tests. All examples use synthetic records.
+Two convenience-API regression examples use the real validator with a test
+replacement for execution; no solver or assignments are involved.
 
 | Cases | Main tests | Verified response |
 | --- | --- | --- |
@@ -231,13 +233,10 @@ The mock algorithm and database schema are unchanged.
 
 ## Verification and next steps
 
-On 2026-10-20, database/fixed-assignment/integration checks returned **113 passed**:
+On 2026-10-20, skill/contract checks returned **89 passed**. The preceding
+database/fixed-assignment/integration group returned **113 passed**.
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_database_validation.py tests/test_fixed_validation.py tests/test_persistence.py tests/test_component_integration.py tests/test_visualization_component.py -q --tb=short -p no:cacheprovider
-```
-
-Full suite: **437 passed, 12 xfailed, 4 failed**:
+Full suite: **439 passed, 12 xfailed, 4 failed**:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --tb=no -p no:cacheprovider
@@ -270,3 +269,5 @@ Feasibility input checks were pushed as `e8ad14c`. Run settings added 36
 domain/form and 6 web examples, with validation now enforced before a mock run.
 Run settings were pushed as `6a535ea`. Database work adds the 26 examples
 summarised above, clear failure pages, and shared transactions for mock workflows.
+Database checks were pushed as `2d8e3fd`. A SKILL-05 follow-up preserves the
+omitted catalogue in the convenience API and adds two regression examples.

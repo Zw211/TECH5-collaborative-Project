@@ -254,6 +254,32 @@ def test_contract_distinguishes_omitted_and_empty_skill_catalogues(
         assert all("unknown skill 'py'" in error for error in outcome.errors)
 
 
+@pytest.mark.parametrize("catalogue", [None, []])
+def test_convenience_run_preserves_skill_catalogue_policy(
+    catalogue: list[models.Skill] | None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SKILL-05: Check the convenience API using validation only, without a solver."""
+    engine = solvers.AssignmentEngine()
+
+    def validate_only(request: contract.RunRequest) -> models.AssignmentRun:
+        outcome = engine.validate_inputs(request)
+        return models.AssignmentRun("validation-only", diagnostics=outcome.to_dict())
+
+    monkeypatch.setattr(engine, "execute_run", validate_only)
+    run = engine.run_assignment(
+        students=[models.Student("S1", "Student 1", skills={"py": 3})],
+        projects=[models.Project("P1", "Project 1")],
+        skills=catalogue,
+    )
+
+    assert run.diagnostics["is_valid"] is (catalogue is None)
+    if catalogue is None:
+        assert any("catalogue was omitted" in warning for warning in run.diagnostics["warnings"])
+    else:
+        assert any("unknown skill 'py'" in error for error in run.diagnostics["errors"])
+    assert run.solutions == []
+
+
 def test_contract_rejects_non_integer_capacity() -> None:
     """CAP-01: The engine returns a clear input error to its caller."""
     request = contract.RunRequest(
