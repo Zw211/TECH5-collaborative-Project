@@ -10,6 +10,10 @@ explaining the problem. Rejecting input means the data must be corrected.
 Infeasibility means the agreed hard constraints cannot all be satisfied.
 A database failure means an operation failed; it does not prove infeasibility.
 
+Current scope (confirmed by the user on 2026-10-20): Week 1 input validation
+and feasibility checks. The instructor has not approved an assignment method.
+Solver-dependent output and comparison cases stay open for later work.
+
 ## How we use the checkboxes
 
 - Mark `[x]` when the working response is agreed, implemented, and tested.
@@ -148,11 +152,18 @@ and `tests/test_solvers.py`.
 
 ## Fixed assignments
 
-- [ ] FIX-01 **One student is fixed to different projects** - reject the conflicting instructions. Do not silently choose one lock.
-- [ ] FIX-02 **The exact same fixed assignment appears twice** - decide whether to reject it or remove the duplicate with a warning. Do not count the same locked student twice when checking project capacity.
-- [ ] FIX-03 **A lock refers to an unknown student or project** - reject with a message identifying the missing record.
-- [ ] FIX-04 **Locks exceed a project's maximum capacity** - report that the locks and capacity cannot all be satisfied. Preserve the locks until a human corrects the inputs.
-- [ ] FIX-05 **An unsupported fixed-assignment status** - agree which statuses create active locks. Reject or explain unsupported values rather than silently ignoring a lock.
+- [x] FIX-01 **One student is fixed to different projects** - reject and name both projects. Release an existing lock explicitly before choosing another project.
+- [x] FIX-02 **The same fixed assignment appears twice** - reject the duplicate before capacity counting; do not count one student twice.
+- [x] FIX-03 **Unknown student or project** - reject and identify the missing reference, using exact case-sensitive IDs.
+- [x] FIX-04 **Locks exceed maximum capacity** - report infeasibility for distinct valid locked students exceeding the project's places. Reject the new form submission without changing existing locks.
+- [x] FIX-05 **Unsupported status** - accept `APPROVED`, `MANDATORY`, and `CONDITIONAL` as active locks, matching the existing form. Reject other values, including non-text values; no status silently disables a lock.
+
+Evidence: `tests/test_fixed_validation.py` (19 examples) and
+`test_invalid_lock_form_preserves_existing_lock` (6 web examples).
+`validate_fixed_assignments()` is shared by cohort validation and the lock form.
+Tests cover conflicts, duplicates, unknown IDs, capacity equality/excess,
+statuses, unusable IDs, contract messages, and unchanged saved locks.
+All use synthetic records; no assignment solver is used.
 
 ## Feasibility and project demand
 
@@ -201,13 +212,13 @@ real optimization method works.
 
 ## Verification and next steps
 
-On 2026-10-20, the focused checks returned **315 passed, 4 xfailed**:
+On 2026-10-20, the fixed-assignment focused checks returned **195 passed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_skill_validation.py tests/test_forms.py tests/test_validation.py tests/test_identifier_validation.py tests/test_preference_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_persistence.py tests/test_metrics.py -q --tb=short -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/test_fixed_validation.py tests/test_validation.py tests/test_identifier_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py -q --tb=short -p no:cacheprovider
 ```
 
-Full suite: **332 passed, 12 xfailed, 4 failed**:
+Full suite: **357 passed, 12 xfailed, 4 failed**:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
@@ -218,7 +229,7 @@ The four failures are the existing CAP-04 real-engine boundary tests;
 still does not meet the passing-suite requirement for merging. Database
 checks ran with access to pytest's separate temporary databases.
 
-Next: FIX-01 to FIX-05 and the open feasibility/solver checks. Shared form
+Next: FEAS-01 to FEAS-06 input checks, then run settings and database input checks. Shared form
 changes need the normal cross-team PR review. No contract, model, schema,
 or solver method changed. General scoring remains unfinished; only the
 documented no-requirement skill-fit case is implemented.
@@ -231,3 +242,5 @@ Skill work added 67 domain/score examples, 3 contract examples, 10 web examples,
 and 21 form examples, and replaced the old ignored-unknown-field form test
 with two rejection examples. Existing unknown-skill tests now expect errors
 instead of warnings. AI assisted with these changes and the short evidence table.
+Fixed-assignment work added 19 domain/contract and 6 web examples. Skill work
+was committed and pushed as `b8f3775`; subgroup commits record their test results.

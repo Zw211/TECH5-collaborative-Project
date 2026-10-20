@@ -11,6 +11,9 @@ from typing import Any
 from app.domain import models
 
 
+FIXED_ASSIGNMENT_STATUSES = ("APPROVED", "MANDATORY", "CONDITIONAL")
+
+
 @dataclasses.dataclass
 class ValidationResult:
     """Represents the outcome of cohort data and constraint validation.
@@ -272,6 +275,74 @@ def _validate_skill_data(
     return len(result.errors) == errors_before
 
 
+def validate_fixed_assignments(
+    fixed_assignments: list[models.FixedAssignment],
+    student_ids: set[str],
+    project_capacities: dict[str, int],
+) -> ValidationResult:
+    """Checks locks against known IDs and validated maximum capacities.
+
+    All supported statuses denote active locks, matching the existing form.
+    Duplicate or conflicting rows are rejected before capacity is counted.
+    """
+    result = ValidationResult()
+    student_projects: dict[str, str] = {}
+    project_counts: dict[str, int] = {}
+    for index, fixed in enumerate(fixed_assignments, start=1):
+        field = f"Fixed assignment #{index}"
+        valid_student = _validate_identifier(fixed.student_id, f"{field} student", result.errors)
+        valid_project = _validate_identifier(fixed.project_id, f"{field} project", result.errors)
+        if not valid_student or not valid_project:
+            continue
+        if not isinstance(fixed.status, str) or fixed.status not in FIXED_ASSIGNMENT_STATUSES:
+            result.errors.append(
+                f"Fixed assignment for student '{fixed.student_id}' has unsupported status "
+                f"{fixed.status!r}. Use APPROVED, MANDATORY, or CONDITIONAL; all are active locks."
+            )
+        if fixed.student_id not in student_ids:
+            result.errors.append(
+                f"Fixed assignment references unknown student '{fixed.student_id}'. "
+                "Student IDs are case-sensitive; use an exact cohort ID."
+            )
+        if fixed.project_id not in project_capacities:
+            result.errors.append(
+                f"Fixed assignment references unknown project '{fixed.project_id}'. "
+                "Project IDs are case-sensitive; use an exact catalog ID."
+            )
+        if fixed.student_id in student_projects:
+            previous_project = student_projects[fixed.student_id]
+            if previous_project == fixed.project_id:
+                result.errors.append(
+                    f"Duplicate fixed assignment: student '{fixed.student_id}' is locked "
+                    f"to project '{fixed.project_id}' more than once."
+                )
+            else:
+                result.errors.append(
+                    f"Contradictory fixed assignment: student '{fixed.student_id}' is "
+                    f"locked to both '{previous_project}' and '{fixed.project_id}'. "
+                    "Release the existing lock before choosing another project."
+                )
+        else:
+            student_projects[fixed.student_id] = fixed.project_id
+            project_counts[fixed.project_id] = project_counts.get(fixed.project_id, 0) + 1
+
+    if result.errors:
+        result.is_valid = False
+        return result
+
+    for project_id, count in project_counts.items():
+        if count > project_capacities[project_id]:
+            message = (
+                f"Fixed assignments ({count}) for project '{project_id}' exceed its "
+                f"maximum capacity ({project_capacities[project_id]})."
+            )
+            result.errors.append(message)
+            result.infeasibility_reasons.append(message)
+            result.is_feasible = False
+    result.is_valid = not result.errors
+    return result
+
+
 def validate_cohort(
     students: list[models.Student],
     projects: list[models.Project],
@@ -377,47 +448,14 @@ def validate_cohort(
         _validate_preferences(student, project_ids, result)
 
     if fixed_assignments:
-        fixed_student_counts: dict[str, int] = {}
-        fixed_project_counts: dict[str, int] = {}
-
-        for fixed in fixed_assignments:
-            if fixed.student_id not in student_ids:
-                result.errors.append(
-                    f"Fixed assignment references unknown student "
-                    f"'{fixed.student_id}'. Student IDs are case-sensitive; "
-                    "use an exact cohort ID."
-                )
-            if fixed.project_id not in project_ids:
-                result.errors.append(
-                    f"Fixed assignment references unknown project "
-                    f"'{fixed.project_id}'. Project IDs are case-sensitive; "
-                    "use an exact catalog ID."
-                )
-
-            fixed_student_counts[fixed.student_id] = (
-                fixed_student_counts.get(fixed.student_id, 0) + 1
-            )
-            fixed_project_counts[fixed.project_id] = (
-                fixed_project_counts.get(fixed.project_id, 0) + 1
-            )
-
-        for s_id, count in fixed_student_counts.items():
-            if count > 1:
-                result.errors.append(
-                    f"Contradictory fixed assignment: student '{s_id}' is "
-                    f"fixed to {count} different projects."
-                )
-
-        for p in projects:
-            p_fixed = fixed_project_counts.get(p.id, 0)
-            if p_fixed > p.max_capacity:
-                result.is_feasible = False
-                msg = (
-                    f"Fixed assignments ({p_fixed}) for project '{p.id}' "
-                    f"exceed its maximum capacity ({p.max_capacity})."
-                )
-                result.errors.append(msg)
-                result.infeasibility_reasons.append(msg)
+        fixed_result = validate_fixed_assignments(
+            fixed_assignments, student_ids,
+            {project.id: project.max_capacity for project in projects},
+        )
+        result.errors.extend(fixed_result.errors)
+        result.infeasibility_reasons.extend(fixed_result.infeasibility_reasons)
+        if not fixed_result.is_feasible:
+            result.is_feasible = False
 
     if enforce_exact_allocation and len(students) > total_max_capacity:
         result.is_feasible = False

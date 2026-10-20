@@ -304,6 +304,33 @@ def test_bad_project_skill_fields_leave_saved_records_unchanged(
     assert b"unknown skill" in response.data or b"Mandatory flag" in response.data
 
 
+@pytest.mark.parametrize(
+    ("student_id", "project_id", "status"),
+    [("S1", "P1", "APPROVED"), ("S1", "P2", "APPROVED"), ("S2", "P1", "APPROVED"),
+     ("ghost", "P2", "APPROVED"), ("S2", "ghost", "APPROVED"), ("S2", "P2", "PENDING")],
+)
+def test_invalid_lock_form_preserves_existing_lock(
+    tmp_path: pathlib.Path, student_id: str, project_id: str, status: str
+) -> None:
+    """Duplicates, conflicts, unknown IDs, over-capacity locks, and bad statuses save nothing."""
+    client = _make_client(tmp_path, "test_lock_validation")
+    repositories.StudentRepository().save(models.Student("S1", "Student 1"))
+    repositories.StudentRepository().save(models.Student("S2", "Student 2"))
+    repositories.ProjectRepository().save(models.Project("P1", "Project 1"))
+    repositories.ProjectRepository().save(models.Project("P2", "Project 2"))
+    original = models.FixedAssignment("S1", "P1", reason="Original lock")
+    repositories.FixedAssignmentRepository().save(original)
+
+    response = client.post(
+        "/fixed-assignments/new", follow_redirects=True,
+        data={"student_id": student_id, "project_id": project_id, "status": status},
+    )
+
+    assert response.status_code == 200
+    assert b"Fixed assignment created:" not in response.data
+    assert repositories.FixedAssignmentRepository().list_all() == [original]
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(

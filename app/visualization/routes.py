@@ -17,6 +17,7 @@ import flask
 from app.contract import contract
 from app.contract import mocks
 from app.domain import models
+from app.domain import validation
 from app.engine import recommendations
 from app.engine import solvers
 from app.persistence import repositories
@@ -759,11 +760,19 @@ def create_fixed_assignment() -> flask.Response:
         flask.flash("Student and Project must be selected.", "warning")
         return flask.redirect(target)
 
-    repositories.FixedAssignmentRepository().save(
-        models.FixedAssignment(
-            student_id=s_id, project_id=p_id, status=status, reason=reason
-        )
+    new_lock = models.FixedAssignment(s_id, p_id, status=status, reason=reason)
+    fixed_repo = repositories.FixedAssignmentRepository()
+    result = validation.validate_fixed_assignments(
+        fixed_repo.list_all() + [new_lock],
+        {student.id for student in repositories.StudentRepository().list_all()},
+        {project.id: project.max_capacity for project in repositories.ProjectRepository().list_all()},
     )
+    if not result.is_valid:
+        for error in result.errors:
+            flask.flash(error, "danger")
+        return flask.redirect(target)
+
+    fixed_repo.save(new_lock)
     flask.flash(
         f"Fixed assignment created: Student {s_id} locked to Project {p_id}. "
         "A new run is required to recalculate allocations.",
