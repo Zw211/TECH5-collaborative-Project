@@ -138,8 +138,8 @@ replacement for execution; no solver or assignments are involved.
 ## Project capacities
 
 - [x] CAP-01 **Missing or non-integer capacities** - reject before calculations. Include missing/blank values, numeric text, fractions, booleans, and non-finite numbers. Forms may parse text into integers first.
-- [x] CAP-02 **Negative minimum or non-positive maximum** - reject. Minimum must be at least 0 and maximum at least 1, matching SQLite.
-- [x] CAP-03 **Minimum exceeds maximum** - reject and identify the project and bounds.
+- [x] CAP-02 **Negative minimum or non-positive maximum** - reject. Minimum must be at least 0 and maximum at least 1, matching SQLite. Do not calculate feasibility from invalid bounds.
+- [x] CAP-03 **Minimum exceeds maximum** - reject and identify the project and bounds. This is an input error, not proof of an impossible assignment.
 - [ ] CAP-04 **Capacity exactly at a boundary** - valid input bounds pass, including minimum 0 and equal bounds. Four real-engine output tests still fail because `execute_run()` is unfinished; see OUT-04.
 
 Evidence: capacity cases in `tests/test_validation.py`, the contract test,
@@ -151,6 +151,9 @@ and `tests/test_solvers.py`.
 | CAP-02/03 | `test_negative_minimum_capacity_is_rejected`, `test_non_positive_maximum_capacity_is_rejected`, `test_capacity_errors` | Invalid ranges are rejected with the affected project/bounds. |
 | CAP-04 input | `test_zero_minimum_capacity_is_allowed`, `test_cohort_at_minimum_capacity_is_allowed`, `test_cohort_at_maximum_capacity_is_allowed`, `test_equal_minimum_and_maximum_capacity_is_allowed` | All four input boundaries pass. |
 | CAP-04 output | `test_real_engine_accepts_capacity_boundaries` | Four failures at `NotImplementedError`; actual assignment assertions are not reached. |
+
+Regression checks also verify that invalid ranges return no infeasibility
+claim, including several bad projects submitted together.
 
 ## Fixed assignments
 
@@ -233,10 +236,11 @@ The mock algorithm and database schema are unchanged.
 
 ## Verification and next steps
 
-On 2026-10-20, skill/contract checks returned **89 passed**. The preceding
-database/fixed-assignment/integration group returned **113 passed**.
+On 2026-10-20, capacity/feasibility/lock/contract checks returned **100 passed**.
+Earlier focused groups: skill/contract **89 passed**; database/integration
+**113 passed**.
 
-Full suite: **439 passed, 12 xfailed, 4 failed**:
+Full suite: **440 passed, 12 xfailed, 4 failed**:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --tb=no -p no:cacheprovider
@@ -247,7 +251,20 @@ The four failures are the existing CAP-04 real-engine boundary tests;
 still does not meet the passing-suite requirement for merging. Database
 checks ran with access to pytest's separate temporary databases.
 
-Next: audit input entry points and document the Week 1 handoff for deferred output cases. Shared form
+The validation pass covers **41 of 59 checklist cases**. The 18 open cases
+remain explicit later work: PREF-05, CAP-04, FEAS-04, OUT-01 through OUT-14,
+and DB-04. Their input portions are checked where described above; passing
+validation does not prove that an assignment exists or validate mock results.
+
+For the Week 1 report, describe implemented validation separately from the
+analytical model, which Team B still needs to formulate and discuss. No
+assignment method has been approved. This work does not complete that
+separate part of the milestone.
+
+Suggested handoff: Team A reviews shared forms/routes and mock workflows;
+Team B reviews the validation rules, formulates the model, and later verifies
+real outputs and scores. Together agree unranked scoring, result explanations,
+and historical snapshots before implementing the remaining cases. Shared form
 changes need the normal cross-team PR review. No contract, model, schema,
 or solver method changed. General scoring remains unfinished; only the
 documented no-requirement skill-fit case is implemented.
@@ -271,3 +288,6 @@ Run settings were pushed as `6a535ea`. Database work adds the 26 examples
 summarised above, clear failure pages, and shared transactions for mock workflows.
 Database checks were pushed as `2d8e3fd`. A SKILL-05 follow-up preserves the
 omitted catalogue in the convenience API and adds two regression examples.
+That follow-up was pushed as `a9194b7`. A final CAP-02/03 correction stops
+invalid ranges before feasibility calculations, strengthening five existing
+examples and adding one example with several invalid projects.

@@ -90,6 +90,8 @@ def test_capacity_errors() -> None:
         and "2" in err
         for err in res.errors
     ), res.errors
+    assert res.infeasibility_reasons == []
+    assert res.is_feasible is True
 
 
 @pytest.mark.parametrize("capacity", INVALID_CAPACITIES)
@@ -196,6 +198,8 @@ def test_negative_minimum_capacity_is_rejected(min_capacity: int) -> None:
         "P1" in error and "negative min capacity" in error
         for error in result.errors
     ), result.errors
+    assert result.infeasibility_reasons == []
+    assert result.is_feasible is True
 
 
 @pytest.mark.parametrize("max_capacity", [0, -1])
@@ -218,6 +222,26 @@ def test_non_positive_maximum_capacity_is_rejected(
         "P1" in error and "non-positive max capacity" in error
         for error in result.errors
     ), result.errors
+    assert result.infeasibility_reasons == []
+    assert result.is_feasible is True
+
+
+def test_invalid_capacity_ranges_are_not_used_to_prove_infeasibility() -> None:
+    """CAP-02/03: Reject all bad bounds before calculating cohort shortages."""
+    result = validation.validate_cohort(
+        [models.Student("S1", "Student 1")],
+        [
+            models.Project("P1", "Project 1", min_capacity=5, max_capacity=2),
+            models.Project("P2", "Project 2", min_capacity=-1, max_capacity=0),
+        ],
+    )
+
+    assert result.is_valid is False
+    assert len(result.errors) == 3
+    assert any("P1" in error for error in result.errors)
+    assert any("P2" in error for error in result.errors)
+    assert result.infeasibility_reasons == []
+    assert result.is_feasible is True
 
 
 def test_zero_minimum_capacity_is_allowed() -> None:

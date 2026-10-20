@@ -501,28 +501,33 @@ def validate_cohort(
 
     _validate_skill_data(students, projects, skills, result)
 
-    total_min_capacity = 0
-    total_max_capacity = 0
     for project in projects:
         if project.max_capacity <= 0:
             result.errors.append(
                 f"Project '{project.id}' has non-positive max capacity: "
                 f"{project.max_capacity}."
             )
+            has_invalid_capacity = True
         if project.min_capacity < 0:
             result.errors.append(
                 f"Project '{project.id}' has negative min capacity: "
                 f"{project.min_capacity}."
             )
+            has_invalid_capacity = True
         if project.min_capacity > project.max_capacity:
             result.errors.append(
                 f"Project '{project.id}' has min capacity "
                 f"({project.min_capacity}) exceeding max capacity "
                 f"({project.max_capacity})."
             )
+            has_invalid_capacity = True
 
-        total_min_capacity += project.min_capacity
-        total_max_capacity += project.max_capacity
+    if has_invalid_capacity:
+        result.is_valid = False
+        return result
+
+    total_min_capacity = sum(project.min_capacity for project in projects)
+    total_max_capacity = sum(project.max_capacity for project in projects)
 
     if len(projects) < 3:
         result.warnings.append(
