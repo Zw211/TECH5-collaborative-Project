@@ -24,11 +24,37 @@ INVALID_CAPACITIES = [
 
 
 def test_empty_cohort_validation() -> None:
-    """Verifies that empty cohort data is flagged as invalid."""
+    """ID-01/ID-02: Reports both missing datasets before other checks."""
     res = validation.validate_cohort(students=[], projects=[])
     assert res.is_valid is False
     assert any("Student cohort cannot be empty" in err for err in res.errors)
     assert any("Project catalog cannot be empty" in err for err in res.errors)
+    assert len(res.errors) == 2
+    assert res.infeasibility_reasons == []
+
+
+def test_no_students_is_rejected() -> None:
+    """ID-01: Reports missing students without calculating a shortage."""
+    project = models.Project(
+        id="P1", title="Project 1", min_capacity=1, max_capacity=2
+    )
+
+    result = validation.validate_cohort(students=[], projects=[project])
+
+    assert result.is_valid is False
+    assert result.errors == ["Student cohort cannot be empty."]
+    assert result.infeasibility_reasons == []
+
+
+def test_no_projects_is_rejected() -> None:
+    """ID-02: Reports missing projects without calculating a shortage."""
+    student = models.Student(id="S01", display_name="Student 1")
+
+    result = validation.validate_cohort(students=[student], projects=[])
+
+    assert result.is_valid is False
+    assert result.errors == ["Project catalog cannot be empty."]
+    assert result.infeasibility_reasons == []
 
 
 def test_duplicate_identifiers() -> None:

@@ -34,7 +34,7 @@ Result: passed on YYYY-MM-DD. Example: minimum 5, maximum 2 was rejected.
 
 | Area | Main implementation | Main tests |
 | --- | --- | --- |
-| Input checks and obvious feasibility problems | [app/domain/validation.py](../app/domain/validation.py), especially `validate_cohort()` | [tests/test_validation.py](../tests/test_validation.py) and the validation cases in [tests/test_edge_cases.py](../tests/test_edge_cases.py) |
+| Input checks and obvious feasibility problems | [app/domain/validation.py](../app/domain/validation.py), especially `validate_cohort()` | [tests/test_validation.py](../tests/test_validation.py), [tests/test_identifier_validation.py](../tests/test_identifier_validation.py), and the validation cases in [tests/test_edge_cases.py](../tests/test_edge_cases.py) |
 | Validation through the interface Team A uses | `AssignmentEngine.validate_inputs()` in [app/engine/solvers.py](../app/engine/solvers.py) | [tests/test_contract_and_engine.py](../tests/test_contract_and_engine.py) |
 | Producing feasible, distinct assignments | `execute_run()` and the strategies in `app/engine/solvers.py` | [tests/test_solvers.py](../tests/test_solvers.py) and `tests/test_edge_cases.py` |
 | Checking and comparing result measures | [app/engine/metrics.py](../app/engine/metrics.py) | [tests/test_metrics.py](../tests/test_metrics.py) |
@@ -47,14 +47,210 @@ database, and contract changes need coordination with Team A.
 
 ## Student, project, and skill identifiers
 
-- [ ] ID-01 **No students** - reject the empty cohort with a clear message.
-- [ ] ID-02 **No projects** - reject the empty project catalogue with a clear message.
-- [ ] ID-03 **Blank identifiers** - reject student, project, or skill IDs that are empty or only spaces.
-- [ ] ID-04 **Identifiers of the wrong type** - reject IDs that are not text, without crashing when comparing or looking them up.
-- [ ] ID-05 **Duplicate identifiers** - reject repeated IDs within the student, project, or skill catalogue. Similar display names alone do not establish duplicate identity.
-- [ ] ID-06 **Duplicate skill names** - reject conflicting names before saving, consistently with the database's unique skill-name rule. Decide how case and spaces are treated.
-- [ ] ID-07 **A record refers to the wrong parent** - reject, for example, a preference inside student S1 whose `student_id` is S2, or a requirement inside P1 whose `project_id` is P2.
-- [ ] ID-08 **Differences in case or spaces** - agree on a consistent rule across forms, engine, and database. Explain unmatched IDs; avoid silently merging distinct records.
+- [x] ID-01 **No students** - reject the empty cohort with a clear message.
+
+  Verified on 2026-10-20 by `test_no_students_is_rejected`: no students
+  and a valid project return `Student cohort cannot be empty.` The
+  validator stops before capacity calculations. There is no separate
+  capacity-shortage claim based on the missing data.
+
+- [x] ID-02 **No projects** - reject the empty project catalogue with a clear message.
+
+  Verified on 2026-10-20 by `test_no_projects_is_rejected`: one student
+  and no projects return `Project catalog cannot be empty.` The validator
+  stops before capacity calculations. There is no separate shortage claim.
+
+- [x] ID-03 **Blank identifiers** - reject student, project, or skill IDs that are empty or only spaces. Apply the same rule to IDs inside preferences, requirements, student skill dictionaries, and fixed assignments.
+
+  Verified on 2026-10-20 by `test_invalid_catalogue_identifier_is_rejected`
+  and `test_invalid_reference_identifiers_are_reported_together` in
+  `tests/test_identifier_validation.py`. Empty text and whitespace-only
+  text return errors naming the affected record and field.
+
+- [x] ID-04 **Identifiers of the wrong type** - reject IDs that are not text, without crashing when comparing or looking them up.
+
+  Verified by the same tests and
+  `test_unhashable_reference_identifiers_do_not_crash`. Examples include
+  missing values, numbers, booleans, lists, and dictionaries. An ID must
+  already be text; the validator does not turn a number into an ID.
+  A list or dictionary cannot be a student skill dictionary key in Python,
+  so those two examples cover catalogue IDs and the other reference fields.
+
+- [x] ID-05 **Duplicate identifiers** - reject repeated IDs within the student, project, or skill catalogue. Similar display names alone do not establish duplicate identity.
+
+  Verified by the existing `test_duplicate_identifiers` and the added
+  `test_duplicate_skill_identifiers_are_rejected`. Positive examples in
+  `test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique`
+  and `test_identifier_may_be_numeric_text_and_reused_in_another_catalogue`
+  accept different IDs with the same display name, and allow a student,
+  project, and skill to each use the text ID `7` in their separate catalogues.
+  The domain validator does not require unique student display names;
+  the existing student form's separate name restriction is unchanged.
+
+- [x] ID-06 **Duplicate skill names** - reject names that become equal after ignoring surrounding spaces and letter case. Keep the original data unchanged.
+
+  Verified by `test_duplicate_skill_names_are_rejected`: `Python`,
+  `PYTHON`, and ` python ` conflict even when their skill IDs differ.
+  `test_skill_name_must_be_nonempty_text` also rejects missing, non-text,
+  or blank names before comparing them. The form already checked case
+  and trimmed new names; it now also trims existing names for comparison.
+  `test_create_skill_rejects_name_matching_padded_existing_name` verifies
+  that a rejected duplicate is not saved. This application rule is stricter
+  than SQLite's exact, case-sensitive `UNIQUE` check on skill names.
+
+- [x] ID-07 **A record refers to the wrong parent** - reject a preference inside S1 whose `student_id` is different, or a requirement inside P1 whose `project_id` is different.
+
+  Verified by `test_preference_must_belong_to_containing_student` and
+  `test_requirement_must_belong_to_containing_project`. Both cover another
+  existing record, an unknown record, and a case difference. The error
+  identifies the containing record and the incorrect reference.
+
+- [x] ID-08 **Differences in case or spaces** - use exact, case-sensitive stored IDs, reject surrounding whitespace in domain input, and explain unmatched references. Do not silently merge distinct records.
+
+  Verified by the positive case-sensitive example above,
+  `test_unmatched_reference_case_is_explained_without_changing_ids`,
+  the padded-ID examples, and the form/database workflow
+  `test_ambiguous_project_case_requires_exact_id`. The detailed rule and
+  the distinction between form parsing and domain input are below.
+
+### ID-01 and ID-02 implementation and verification
+
+The starter already checked for empty lists, but continued into capacity
+calculations and could add shortage messages. We now return immediately
+after collecting the missing-data messages. Both checks run before that
+return, so if both lists are empty the user receives both messages.
+
+The added code in `app/domain/validation.py` is:
+
+```python
+if not students or not projects:
+    result.is_valid = False
+    return result
+```
+
+`not students` is true when the student list is empty. `or` means either
+missing list is enough to reject the request. `is_valid = False` records
+that decision, and `return` stops the remaining checks. Correct the
+missing data and validate again before attempting assignment. The public
+contract is unchanged, and nonempty inputs continue through the existing
+checks as before.
+
+| Test | What it checks |
+| --- | --- |
+| `tests/test_validation.py::test_no_students_is_rejected` | No students and a project with bounds 1 to 2. Expect only the missing-students message, invalid input, and no mathematical infeasibility reason. |
+| `tests/test_validation.py::test_no_projects_is_rejected` | One student and no projects. Expect only the missing-projects message, invalid input, and no mathematical infeasibility reason. |
+| `tests/test_validation.py::test_empty_cohort_validation` | Both lists empty. The strengthened starter test requires both messages, exactly two errors, and no mathematical infeasibility reason. |
+| `tests/test_contract_and_engine.py::test_contract_rejects_empty_datasets` | Three separate examples: missing students, missing projects, and both missing. Each sends a `RunRequest` through `engine.validate_inputs()` and checks that the caller receives the expected `ValidationOutcome` and messages. |
+
+The existing standard-cohort contract test also checks that ordinary valid
+data remain accepted. The new tests use the existing domain classes,
+simple conditions, and assertions, following the local `tech5-simple-oop`
+skill. No new class or dependency is needed.
+
+Before the early return was added, the focused run had **4 failed and
+40 passed**. Those failures showed the extra shortage messages. After the
+change, this command returned **44 passed** on 2026-10-20:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_validation.py tests/test_contract_and_engine.py::test_contract_rejects_empty_datasets -q -p no:cacheprovider
+```
+
+This includes all 41 validation examples and the three new interface
+examples. A full-suite run then returned **4 failed, 123 passed,
+12 xfailed**. The four failures are still CAP-04's unfinished real-engine
+tests; there are no new full-suite failures from these changes. Results
+below for earlier capacity work describe those earlier stages.
+
+### ID-03 to ID-08 implementation and verification
+
+These are the implemented branch rules for this work. Other unchecked
+policies below still need discussion. No contract, domain model, or schema
+change is needed.
+
+`app/domain/validation.py` remains the main location because these rules
+apply to a run request from any caller, including data loaded from SQLite.
+It works with the existing `Student`, `Project`, `Skill`, `Preference`,
+`ProjectRequirement`, and `FixedAssignment` objects.
+
+Three small functions support `validate_cohort()`:
+
+- `_validate_identifier()` first checks that an ID is text, then checks
+  that it is not blank and has no surrounding whitespace. It returns
+  `True` or `False` and adds an understandable error when needed.
+- `_validate_identifiers()` checks catalogue IDs, duplicate IDs, all
+  reference IDs, and whether preferences and requirements belong to
+  the objects containing them. `enumerate(..., start=1)` numbers records
+  in error messages, which helps when an ID itself is unusable.
+- `_validate_skill_names()` checks names before comparing them. `strip()`
+  ignores surrounding whitespace for the comparison; `casefold()` lets
+  names such as `Python` and `PYTHON` compare as equal. A dictionary records
+  the first skill ID using each compared name so an error can name both.
+
+The validator collects these errors and returns invalid input before
+capacity totals, set lookups on references, or mandatory-skill calculations.
+For example, two records with ID `S1` must be corrected before claiming
+that their combined demand makes a project too small.
+`test_bad_identifier_stops_feasibility_checks` verifies this.
+No infeasibility reason is added from these bad records. The existing
+contract's `is_valid` flag tells the caller to correct the input first;
+an empty infeasibility-reason list does not promise a feasible allocation.
+
+The ID rules are:
+
+| Situation | Implemented response |
+| --- | --- |
+| Domain input contains `" P1 "` | Reject with an error about surrounding whitespace. Correct the ID and its references together. Do not silently strip stored IDs. |
+| Domain input contains number `7` | Reject because it is not text. The text `"7"` is allowed. |
+| Stored IDs are `P1` and `p1` | Treat them as different IDs, matching SQLite's text comparison. Exact references to each remain valid. |
+| A reference uses `p1`, but only `P1` exists | Report an unmatched ID and explain that IDs are case-sensitive. Do not change the reference. |
+| A new record is entered through a form | Keep the existing parsing: trim surrounding form spaces; new skill IDs are also lowercased. The resulting domain objects use the stored IDs. |
+| A preference form contains a different case | Preserve the existing convenience when exactly one project matches. If several IDs match without case, require the exact spelling and save nothing until corrected. |
+
+The preference form previously could choose one of several case matches.
+`app/visualization/routes.py` now uses an exact match first and accepts
+a case-insensitive match only when unique. Its error tells the user to
+use exact spelling. The new form test rejects `PROJECTA` when `ProjectA`
+and `projecta` both exist, then saves and reloads both exact references
+separately. The existing `test_create_student_preference_validation`
+still verifies that `p1` can resolve to the sole stored project `P1`.
+
+Unknown skill references keep the starter's warning behaviour when a
+nonempty catalogue is supplied; their messages now explain exact matching.
+The decision to reject all unknown skills and the handling of an absent
+or empty skill catalogue remain open under SKILL-04 and SKILL-05.
+Preference ranks and skill levels are separate unfinished checks.
+The repositories' direct `save()` methods have not gained these checks;
+invalid saved records and database failures remain under DB-01 to DB-03.
+
+The new file `tests/test_identifier_validation.py` contains **58 examples**.
+Before the implementation, it returned **52 failed, 6 passed**. After the
+implementation, all 58 pass. One additional contract test,
+`test_contract_reports_identifier_and_parent_errors`, confirms that
+Team A's interface returns several structural errors together. Two new
+form/database tests cover ambiguous project IDs and existing padded skill
+names. Both form tests failed before their respective fixes and now pass.
+All examples use synthetic records.
+
+On 2026-10-20, this focused command returned **149 passed**:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_identifier_validation.py tests/test_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_persistence.py -q --tb=short -p no:cacheprovider
+```
+
+The full check returned **4 failed, 184 passed, 12 xfailed**:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
+```
+
+The four failures are still the four
+`test_real_engine_accepts_capacity_boundaries` examples: `execute_run()`
+raises `NotImplementedError`. They are unfinished CAP-04 output work.
+There are no new full-suite failures from ID-03 to ID-08, but the branch
+does not yet satisfy the passing-suite rule for merging. The form and
+database tests needed access to temporary test folders; the first
+restricted attempt could not open those folders. Counts above come from
+completed runs with that access.
 
 ## Project preferences supplied by students
 
@@ -97,7 +293,8 @@ database, and contract changes need coordination with Team A.
   `test_contract_rejects_non_integer_capacity` also pass, covering several
   bad fields together and the engine interface used by Team A.
 
-  Latest focused result: **40 passed**. Latest full-suite result:
+  Results when CAP-01 was implemented: **40 focused tests passed**.
+  The full-suite result at that stage was:
   **4 failed, 118 passed, 12 xfailed**. The remaining four failures are
   CAP-04's real-engine tests. See the implementation notes below.
 
@@ -229,7 +426,7 @@ on pytest's temporary folders; the reported result is from the authorized
 rerun with access to those folders. Cache writing was disabled for that
 run; disabling the cache does not change assertion behaviour.
 
-### CAP-01 implementation and latest verification
+### CAP-01 implementation and verification
 
 `validate_cohort()` now checks both capacity types for every project before
 the existing range checks or calculations. The code uses a normal loop and
@@ -341,9 +538,9 @@ real optimization method works.
 - [ ] DB-03 **Saving fails partway through** - roll back the affected transaction so related records are not left partly saved. Report whether saving succeeded; do not claim persistence succeeded after an error.
 - [ ] DB-04 **Input records change or are deleted after a saved run** - agree how history is preserved. The current schema can cascade deletion of students or projects to saved assignments; avoid presenting an altered old run as its original result.
 
-## Existing evidence and first steps
+## Existing evidence and next steps
 
-The six tests in `tests/test_validation.py` already exercise empty datasets,
+The six original tests in `tests/test_validation.py` exercise empty datasets,
 duplicate student/project IDs, inverted capacity bounds, contradictory locks,
 locks exceeding capacity, and a total capacity deficit. They do not cover
 every input type or every case above.
@@ -355,7 +552,10 @@ examples already exist in `tests/test_edge_cases.py`.
 Capacity tests for CAP-01 to CAP-04 are written, and CAP-01's integer checks
 are now implemented and passing. CAP-04's output tests will be completed by
 implementing the real engine using the approved assignment method. Next
-input-validation priorities are SKILL-02, SKILL-03, and PREF-06.
+input-validation priorities are SKILL-02, SKILL-03, and PREF-06;
+ID-01 through ID-08 are now implemented and verified. The ID rules also
+touch Team A's existing form checks and should be included in shared-path
+review before merging.
 For each small change, run the relevant tests and update its evidence before
 moving on. Review policy questions
 such as ties, missing preferences, mandatory-skill coverage, and partial
@@ -384,6 +584,14 @@ inspection of the starter code and tests. Updated on the same date with
 CAP-01 to CAP-04 tests, observed results, a plain-language walkthrough,
 and the CAP-01 implementation and its two regression tests. The project
 `tech5-simple-oop` skill was also updated to explain the purpose and scope
-of approval requests in everyday words.
+of approval requests in everyday words. A further update on the same date
+verified ID-01 and ID-02, added an early return and five new test examples,
+and strengthened the existing both-empty test. The local skill also now
+states that ignored instruction files should stay local unless the user
+explicitly asks to share them.
+A further update implemented and verified ID-03 to ID-08, added 61 test
+examples across domain, contract, and form checks, and recorded the exact
+ID and skill-name rules above. AI assisted with implementation, tests, and
+this documentation. The existing solver remains unfinished.
 Responses remain proposed unless recorded as verified above. Student
 understanding of the changes has not yet been demonstrated.

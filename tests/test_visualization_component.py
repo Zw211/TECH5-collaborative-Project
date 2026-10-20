@@ -176,6 +176,34 @@ def test_create_student_preference_validation(
     assert saved.preferences[0].project_id == "P1"
 
 
+def test_ambiguous_project_case_requires_exact_id(tmp_path: pathlib.Path) -> None:
+    """ID-08: Never choose between case-distinct IDs on the student's behalf."""
+    client = _make_client(tmp_path, "test_ambiguous_project_case")
+    project_repo = repositories.ProjectRepository()
+    project_repo.save(models.Project("ProjectA", "First project"))
+    project_repo.save(models.Project("projecta", "Second project"))
+    form = {
+        "id": "S1",
+        "display_name": "Student 1",
+        "preferences_text": "PROJECTA",
+    }
+
+    response = client.post("/students/new", data=form, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b"Invalid project ID(s) in preferences: PROJECTA" in response.data
+    assert b"exact spelling" in response.data
+    assert repositories.StudentRepository().get_by_id("S1") is None
+
+    form["preferences_text"] = " ProjectA, projecta "
+    response = client.post("/students/new", data=form, follow_redirects=True)
+
+    assert b"created successfully" in response.data
+    saved = repositories.StudentRepository().get_by_id("S1")
+    assert saved is not None
+    assert [pref.project_id for pref in saved.preferences] == ["ProjectA", "projecta"]
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(
@@ -267,6 +295,22 @@ def test_create_skill_invalid_id_format(
     )
     assert b"Invalid skill ID" in res.data
     assert repositories.SkillRepository().list_all() == []
+
+
+def test_create_skill_rejects_name_matching_padded_existing_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """ID-06: Imported names with edge spaces cannot bypass duplicate checks."""
+    client = _make_client(tmp_path, "test_existing_padded_skill_name")
+    repositories.SkillRepository().save(models.Skill("py", " Python "))
+
+    response = client.post(
+        "/skills/new", data=_skill_form("other", "PYTHON"), follow_redirects=True
+    )
+
+    assert b"Skill name &#39;PYTHON&#39; already exists." in response.data
+    assert repositories.SkillRepository().get_by_id("other") is None
+    assert len(repositories.SkillRepository().list_all()) == 1
 
 
 def test_create_skill_missing_name(tmp_path: pathlib.Path) -> None:

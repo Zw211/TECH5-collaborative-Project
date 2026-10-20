@@ -66,6 +66,96 @@ def test_contract_validate_inputs(tmp_path: pathlib.Path) -> None:
     assert bad_outcome.infeasibility_reasons
 
 
+@pytest.mark.parametrize(
+    ("has_students", "has_projects", "expected_errors"),
+    [
+        pytest.param(
+            False,
+            True,
+            ["Student cohort cannot be empty."],
+            id="no-students",
+        ),
+        pytest.param(
+            True,
+            False,
+            ["Project catalog cannot be empty."],
+            id="no-projects",
+        ),
+        pytest.param(
+            False,
+            False,
+            [
+                "Student cohort cannot be empty.",
+                "Project catalog cannot be empty.",
+            ],
+            id="both-missing",
+        ),
+    ],
+)
+def test_contract_rejects_empty_datasets(
+    has_students: bool,
+    has_projects: bool,
+    expected_errors: list[str],
+) -> None:
+    """ID-01/ID-02: The engine returns clear errors for missing datasets."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    projects = [
+        models.Project(
+            id="P1", title="Project 1", min_capacity=1, max_capacity=2
+        )
+    ]
+    if not has_students:
+        students = []
+    if not has_projects:
+        projects = []
+    request = contract.RunRequest(students=students, projects=projects)
+    engine = solvers.AssignmentEngine()
+
+    outcome = engine.validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert outcome.errors == expected_errors
+    assert outcome.infeasibility_reasons == []
+
+
+def test_contract_reports_identifier_and_parent_errors() -> None:
+    """ID-04 to ID-07: Team A receives all structural errors without a crash."""
+    request = contract.RunRequest(
+        students=[
+            models.Student(
+                "S1", "Student 1", preferences=[models.Preference("S2", "P1", 1)]
+            )
+        ],
+        projects=[
+            models.Project(
+                "P1", "Project 1",
+                requirements=[models.ProjectRequirement("P2", "py")],
+            )
+        ],
+        skills=[models.Skill("py", "Python"), models.Skill("py", " python ")],
+        fixed_assignments=[
+            models.FixedAssignment([], "P1"),  # type: ignore[arg-type]
+        ],
+    )
+    engine = solvers.AssignmentEngine()
+
+    outcome = engine.validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert len(outcome.errors) == 5
+    for message in [
+        "Preference in student 'S1' references student 'S2'",
+        "Requirement in project 'P1' references project 'P2'",
+        "Duplicate skill identifier",
+        "Duplicate skill name",
+        "Fixed assignment #1 student identifier must be text",
+    ]:
+        assert any(message in error for error in outcome.errors), outcome.errors
+    assert outcome.infeasibility_reasons == []
+
+
 def test_contract_rejects_non_integer_capacity() -> None:
     """CAP-01: The engine returns a clear input error to its caller."""
     request = contract.RunRequest(

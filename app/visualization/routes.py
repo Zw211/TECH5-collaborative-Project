@@ -153,9 +153,10 @@ def _parse_and_validate_preferences(
 
     Returns:
         A tuple of (valid_preferences_list, invalid_project_ids_list).
+        Prefer exact IDs. Accept a case-insensitive match only when unique.
+        Unknown or ambiguous tokens must be corrected before saving.
     """
     raw_tokens = [p.strip() for p in pref_raw.split(",") if p.strip()]
-    case_map = {p_id.upper(): p_id for p_id in available_projects}
 
     valid_prefs: list[models.Preference] = []
     invalid_ids: list[str] = []
@@ -165,9 +166,15 @@ def _parse_and_validate_preferences(
         resolved_id = None
         if token in available_projects:
             resolved_id = token
-        elif token.upper() in case_map:
-            resolved_id = case_map[token.upper()]
         else:
+            matching_ids = [
+                project_id for project_id in available_projects
+                if project_id.casefold() == token.casefold()
+            ]
+            if len(matching_ids) == 1:
+                resolved_id = matching_ids[0]
+
+        if resolved_id is None:
             invalid_ids.append(token)
             continue
 
@@ -240,7 +247,8 @@ def create_student() -> flask.Response:
         flask.flash(
             f"Invalid project ID(s) in preferences: "
             f"{', '.join(invalid_proj_ids)}. "
-            f"Available projects: {valid_list}.",
+            f"Available projects: {valid_list}. "
+            "Use the exact spelling when IDs differ only by letter case.",
             "danger",
         )
         return flask.redirect(
@@ -326,7 +334,8 @@ def update_student(student_id: str) -> flask.Response:
         flask.flash(
             f"Invalid project ID(s) in preferences: "
             f"{', '.join(invalid_proj_ids)}. "
-            f"Available projects: {valid_list}.",
+            f"Available projects: {valid_list}. "
+            "Use the exact spelling when IDs differ only by letter case.",
             "danger",
         )
         return flask.redirect(
@@ -548,7 +557,8 @@ def _validate_skill_input(
     """Normalizes and validates the input of a new skill.
 
     The identifier is stripped and lowercased before it is checked, so that
-    "  PY " is stored as "py". Duplicate names are detected case-insensitively.
+    "  PY " is stored as "py". Duplicate names ignore case and edge spaces
+    in both the new name and existing names.
 
     Args:
         skill_id: Raw skill identifier from user input.
@@ -575,7 +585,7 @@ def _validate_skill_input(
 
     if not norm_name:
         errors.append("Skill name cannot be empty.")
-    elif norm_name.casefold() in {s.name.casefold() for s in existing_skills}:
+    elif norm_name.casefold() in {s.name.strip().casefold() for s in existing_skills}:
         errors.append(f"Skill name '{norm_name}' already exists.")
 
     return norm_id, errors
