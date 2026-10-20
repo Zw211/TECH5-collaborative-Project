@@ -63,6 +63,7 @@ def validate_cohort(
 
     Returns:
         A ValidationResult detailing validity, warnings, and feasibility.
+        Non-integer capacities are rejected before capacity calculations.
     """
     result = ValidationResult()
 
@@ -81,6 +82,25 @@ def validate_cohort(
             )
         else:
             student_ids.add(student.id)
+
+    has_invalid_capacity = False
+    for project in projects:
+        if type(project.min_capacity) is not int:
+            result.errors.append(
+                f"Project '{project.id}': minimum capacity must be a whole "
+                "number."
+            )
+            has_invalid_capacity = True
+        if type(project.max_capacity) is not int:
+            result.errors.append(
+                f"Project '{project.id}': maximum capacity must be a whole "
+                "number."
+            )
+            has_invalid_capacity = True
+
+    if has_invalid_capacity:
+        result.is_valid = False
+        return result
 
     project_ids: set[str] = set()
     total_min_capacity = 0

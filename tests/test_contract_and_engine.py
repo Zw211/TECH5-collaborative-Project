@@ -66,6 +66,34 @@ def test_contract_validate_inputs(tmp_path: pathlib.Path) -> None:
     assert bad_outcome.infeasibility_reasons
 
 
+def test_contract_rejects_non_integer_capacity() -> None:
+    """CAP-01: The engine returns a clear input error to its caller."""
+    request = contract.RunRequest(
+        students=[models.Student(id="S01", display_name="Student 1")],
+        projects=[
+            models.Project(
+                id="P1",
+                title="Project 1",
+                min_capacity=0,
+                max_capacity="2",  # type: ignore[arg-type]
+            )
+        ],
+    )
+    engine = solvers.AssignmentEngine()
+
+    outcome = engine.validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert any(
+        "P1" in error
+        and "maximum capacity" in error
+        and "whole number" in error
+        for error in outcome.errors
+    ), outcome.errors
+    assert outcome.infeasibility_reasons == []
+
+
 def test_contract_execute_and_retrieval(tmp_path: pathlib.Path) -> None:
     """Tests execute_run, get_run, get_solution, and list_runs via contract."""
     db_file = tmp_path / "test_exec_contract.db"
