@@ -228,9 +228,8 @@ def _validate_skill_data(
     projects: list[models.Project],
     skills: list[models.Skill] | None,
     result: ValidationResult,
-) -> bool:
-    """Checks skill data and returns whether mandatory matching can safely use it."""
-    errors_before = len(result.errors)
+) -> None:
+    """Collects skill errors before mandatory matching uses the data."""
     defined_skill_ids = None if skills is None else {skill.id for skill in skills}
     has_skill_references = (
         any(student.skills for student in students)
@@ -271,9 +270,6 @@ def _validate_skill_data(
                     f"Project '{project.id}' demands unknown skill '{skill_id}'. "
                     "Skill IDs are case-sensitive; use an exact catalog ID."
                 )
-
-    return len(result.errors) == errors_before
-
 
 def validate_fixed_assignments(
     fixed_assignments: list[models.FixedAssignment],
@@ -341,6 +337,71 @@ def validate_fixed_assignments(
             result.is_feasible = False
     result.is_valid = not result.errors
     return result
+
+
+def _check_mandatory_feasibility(
+    students: list[models.Student],
+    projects: list[models.Project],
+    fixed_assignments: list[models.FixedAssignment],
+    enforce_exact_allocation: bool,
+    result: ValidationResult,
+) -> None:
+    """Checks necessary team coverage, allowing an optional project to stay unused.
+
+    Each used project needs one eligible member per mandatory skill. These
+    individual checks do not prove that all projects can be staffed together.
+    """
+    locked_projects = {fixed.student_id: fixed.project_id for fixed in fixed_assignments}
+    total_max_capacity = sum(project.max_capacity for project in projects)
+    usable_max_capacity = 0
+    for project in projects:
+        locked_count = sum(project_id == project.id for project_id in locked_projects.values())
+        has_open_place = locked_count < project.max_capacity
+        project_must_be_used = project.min_capacity > 0 or locked_count > 0
+        if enforce_exact_allocation and len(students) > total_max_capacity - project.max_capacity:
+            project_must_be_used = True
+
+        project_is_usable = True
+        for requirement in project.requirements:
+            if not requirement.is_mandatory:
+                continue
+            qualified_students = []
+            for student in students:
+                locked_project = locked_projects.get(student.id)
+                if locked_project is not None and locked_project != project.id:
+                    continue
+                if locked_project != project.id and not has_open_place:
+                    continue
+                if student.get_skill_level(requirement.skill_id) >= requirement.minimum_level:
+                    qualified_students.append(student.id)
+            if qualified_students:
+                continue
+
+            project_is_usable = False
+            detail = (
+                f"No eligible student meets mandatory skill '{requirement.skill_id}' "
+                f"(level {requirement.minimum_level}) for project '{project.id}', "
+                "after respecting fixed locks and available places."
+            )
+            if project_must_be_used:
+                message = f"Mandatory requirement impossible: {detail}"
+                result.errors.append(message)
+                result.infeasibility_reasons.append(message)
+                result.is_feasible = False
+            else:
+                result.warnings.append(f"{detail} This optional project must remain unused.")
+
+        if project_is_usable:
+            usable_max_capacity += project.max_capacity
+
+    if enforce_exact_allocation and usable_max_capacity < total_max_capacity and len(students) > usable_max_capacity:
+        message = (
+            f"Mandatory skills and fixed locks leave usable project places "
+            f"({usable_max_capacity}) below the cohort size ({len(students)})."
+        )
+        result.errors.append(message)
+        result.infeasibility_reasons.append(message)
+        result.is_feasible = False
 
 
 def validate_cohort(
@@ -412,7 +473,7 @@ def validate_cohort(
         result.is_valid = False
         return result
 
-    skill_data_is_valid = _validate_skill_data(students, projects, skills, result)
+    _validate_skill_data(students, projects, skills, result)
 
     total_min_capacity = 0
     total_max_capacity = 0
@@ -467,7 +528,7 @@ def validate_cohort(
         result.errors.append(msg)
         result.infeasibility_reasons.append(msg)
 
-    if enforce_exact_allocation and len(students) < total_min_capacity:
+    if len(students) < total_min_capacity:
         result.is_feasible = False
         msg = (
             f"Cohort size ({len(students)}) is below aggregate minimum "
@@ -476,28 +537,13 @@ def validate_cohort(
         result.errors.append(msg)
         result.infeasibility_reasons.append(msg)
 
-    if not skill_data_is_valid:
+    if result.errors:
         result.is_valid = False
         return result
 
-    for project in projects:
-        for req in project.requirements:
-            if req.is_mandatory:
-                qualified_students = [
-                    s
-                    for s in students
-                    if s.get_skill_level(req.skill_id) >= req.minimum_level
-                ]
-                if not qualified_students:
-                    result.is_feasible = False
-                    msg = (
-                        f"Mandatory requirement impossible: No student in "
-                        f"cohort meets mandatory skill '{req.skill_id}' "
-                        f"(level {req.minimum_level}) for project "
-                        f"'{project.id}'."
-                    )
-                    result.errors.append(msg)
-                    result.infeasibility_reasons.append(msg)
+    _check_mandatory_feasibility(
+        students, projects, fixed_assignments or [], enforce_exact_allocation, result
+    )
 
     if result.errors:
         result.is_valid = False

@@ -170,12 +170,18 @@ All use synthetic records; no assignment solver is used.
 Passing input checks does not prove that a feasible assignment exists.
 The solver must check combinations of constraints as well.
 
-- [ ] FEAS-01 **More students than total places** - report infeasibility when every student must receive a project. Partial allocation requires an explicitly agreed policy and clearly identified unassigned students.
-- [ ] FEAS-02 **Too few students to fill all required minimum capacities** - report infeasibility under the current model requiring every project's minimum.
-- [ ] FEAS-03 **A required mandatory skill is unavailable** - report infeasibility when that coverage is required by the agreed model. State whether coverage is required from one team member or every assigned student; the report proposes team coverage.
-- [ ] FEAS-04 **Enough places overall, but the constraints clash** - use the solver to detect cases such as two required projects competing for the only qualified student, or locks preventing mandatory skill coverage.
-- [ ] FEAS-05 **Very high or low preference demand for one project** - accept the preferences. Demand alone does not prove infeasibility; check capacities and other hard constraints, then show the trade-off.
-- [ ] FEAS-06 **A project can have zero students** - decide whether mandatory skill coverage still applies when the project is unused. Document that rule before reporting an unused project as infeasible; do not assume minimum 0 resolves this question.
+- [x] FEAS-01 **More students than total places** - report infeasibility under the application's exact-allocation contract. No partial output policy is introduced.
+- [x] FEAS-02 **Too few students for required minima** - report infeasibility. Minimum capacities still apply if the lower-level validator's exact-allocation option is disabled.
+- [x] FEAS-03 **Mandatory skill unavailable** - require at least one qualified member per mandatory skill on each used project (user confirmed on 2026-10-20). Eligibility respects locks and remaining places.
+- [ ] FEAS-04 **Constraints clash in combination** - lock-related coverage shortages are checked. Full combinations remain later solver work: for example, P1 and P2 both require Python with minimum 1, but only S1 is qualified and S2 has no Python. Enough total places and individual coverage checks do not prove feasibility.
+- [x] FEAS-05 **Uneven preference demand** - accept as normal competition. Popularity alone is not an input error or infeasibility proof; actual allocations and trade-offs remain later output work.
+- [x] FEAS-06 **Zero students allowed** - an unused project needs no mandatory coverage (user confirmed). Warn if an uncovered optional project must remain unused; exclude its capacity from usable places. Minimums, locks, or total demand may force a project to be used.
+
+Evidence: `tests/test_feasibility_validation.py` (12 examples) covers total
+capacity, minima, optional projects, lock-related coverage shortages, one
+qualified team member, unusable capacity, and uneven demand. These are
+necessary input checks, not a complete assignment search. A passing result
+means no tested contradiction was found; it does not prove feasibility.
 
 ## Run settings
 
@@ -212,13 +218,13 @@ real optimization method works.
 
 ## Verification and next steps
 
-On 2026-10-20, the fixed-assignment focused checks returned **195 passed**:
+On 2026-10-20, the input-validation focused checks returned **232 passed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_fixed_validation.py tests/test_validation.py tests/test_identifier_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py -q --tb=short -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/test_feasibility_validation.py tests/test_fixed_validation.py tests/test_skill_validation.py tests/test_validation.py tests/test_identifier_validation.py tests/test_preference_validation.py -q --tb=short -p no:cacheprovider
 ```
 
-Full suite: **357 passed, 12 xfailed, 4 failed**:
+Full suite: **369 passed, 12 xfailed, 4 failed**:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
@@ -229,7 +235,7 @@ The four failures are the existing CAP-04 real-engine boundary tests;
 still does not meet the passing-suite requirement for merging. Database
 checks ran with access to pytest's separate temporary databases.
 
-Next: FEAS-01 to FEAS-06 input checks, then run settings and database input checks. Shared form
+Next: run settings and database input checks. Shared form
 changes need the normal cross-team PR review. No contract, model, schema,
 or solver method changed. General scoring remains unfinished; only the
 documented no-requirement skill-fit case is implemented.
@@ -244,3 +250,6 @@ with two rejection examples. Existing unknown-skill tests now expect errors
 instead of warnings. AI assisted with these changes and the short evidence table.
 Fixed-assignment work added 19 domain/contract and 6 web examples. Skill work
 was committed and pushed as `b8f3775`; subgroup commits record their test results.
+Fixed checks were committed and pushed as `716d52a`. Feasibility work added
+12 input examples and records the user's confirmed coverage rule; no solver
+or assignment method has been implemented or claimed approved.
