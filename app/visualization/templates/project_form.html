@@ -10,13 +10,6 @@
   </div>
 
   <div class="card-body">
-    <!-- TODO (Team A): Implement Project Creation/Edit Form -->
-    <div class="alert alert-info" style="margin-bottom: 1.5rem;">
-      <strong>Team A Starter Carcass:</strong>
-      Implement the form fields below to capture project attributes (ID, title, description, min/max capacities)
-      and the project skill requirements matrix (proficiency levels 1–5 and mandatory constraint flags).
-    </div>
-
     <form action="{% if project %}{{ url_for('visualization_web.update_project', project_id=project.id) }}{% else %}{{ url_for('visualization_web.create_project') }}{% endif %}" method="POST">
       <div class="grid-2">
         <div class="form-group">
@@ -50,14 +43,17 @@
         </div>
       </div>
 
-      <!-- TODO (Team A): Implement Skill Requirements Matrix -->
       <div class="form-group" style="margin-top: 1rem;">
         <label class="form-label">Skill Requirements:</label>
         <div style="background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem;">
           <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.75rem;">
-            <!-- TODO (Team A): Loop over catalogued skills, provide minimum level input and mandatory checkbox -->
-            Configure required skill proficiency levels (0-5) and designate mandatory requirements:
+            Set a required proficiency level from 1 to 5 (0 = not required). A mandatory requirement needs a level and must be met by at least one assigned student.
           </p>
+          {% if not skills %}
+            <p style="color: var(--text-muted); font-style: italic;">
+              No skills catalogued yet. <a href="{{ url_for('visualization_web.list_skills') }}">Add skills</a> to define requirements.
+            </p>
+          {% endif %}
           <table class="data-table" style="background: transparent;">
             <thead>
               <tr>
@@ -68,13 +64,14 @@
             </thead>
             <tbody>
               {% for sk in skills %}
+                {% set req = req_by_skill.get(sk.id) %}
                 <tr>
                   <td><strong>{{ sk.name }}</strong> (<code>{{ sk.id }}</code>)</td>
                   <td style="width: 150px;">
-                    <input type="number" name="req_level_{{ sk.id }}" min="0" max="5" class="form-control" value="0">
+                    <input type="number" name="req_level_{{ sk.id }}" min="0" max="5" class="form-control" value="{{ req.minimum_level if req else 0 }}">
                   </td>
                   <td style="text-align: center; width: 150px;">
-                    <input type="checkbox" name="req_mand_{{ sk.id }}" value="1">
+                    <input type="checkbox" name="req_mand_{{ sk.id }}" value="1" {% if req and req.is_mandatory %}checked{% endif %}>
                   </td>
                 </tr>
               {% endfor %}
