@@ -218,16 +218,25 @@ def test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique() -
     students = [
         models.Student(
             "S1", "Same name", skills={"py": 3},
-            preferences=[models.Preference("S1", "P1", 1)],
+            preferences=[
+                models.Preference("S1", "P1", 1),
+                models.Preference("S1", "p1", 2),
+                models.Preference("S1", "P2", 3),
+            ],
         ),
         models.Student(
             "s1", "Same name", skills={"PY": 2},
-            preferences=[models.Preference("s1", "p1", 1)],
+            preferences=[
+                models.Preference("s1", "p1", 1),
+                models.Preference("s1", "P1", 2),
+                models.Preference("s1", "P2", 3),
+            ],
         ),
     ]
     projects = [
         models.Project("P1", "Same title", requirements=[models.ProjectRequirement("P1", "py")]),
         models.Project("p1", "Same title", requirements=[models.ProjectRequirement("p1", "PY")]),
+        models.Project("P2", "Third project"),
     ]
     skills = [models.Skill("py", "Python"), models.Skill("PY", "Advanced Python")]
     fixed = [models.FixedAssignment("S1", "P1"), models.FixedAssignment("s1", "p1")]
@@ -238,7 +247,7 @@ def test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique() -
     assert result.errors == []
     assert result.warnings == []
     assert [student.id for student in students] == ["S1", "s1"]
-    assert [project.id for project in projects] == ["P1", "p1"]
+    assert [project.id for project in projects] == ["P1", "p1", "P2"]
     assert [skill.id for skill in skills] == ["py", "PY"]
 
 
@@ -272,8 +281,11 @@ def test_unmatched_reference_case_is_explained_without_changing_ids() -> None:
     assert result.is_valid is False
     assert len(result.errors) == 3
     assert all("case-sensitive" in error for error in result.errors)
-    assert len(result.warnings) == 2
-    assert all("case-sensitive" in warning for warning in result.warnings)
+    skill_warnings = [
+        warning for warning in result.warnings if "uncatalogued skill" in warning
+    ]
+    assert len(skill_warnings) == 2
+    assert all("case-sensitive" in warning for warning in skill_warnings)
     assert student.preferences[0].project_id == "p1"
     assert fixed.student_id == "s1"
     assert student.skills == {"PY": 3}

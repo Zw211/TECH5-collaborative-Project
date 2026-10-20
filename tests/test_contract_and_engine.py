@@ -156,6 +156,57 @@ def test_contract_reports_identifier_and_parent_errors() -> None:
     assert outcome.infeasibility_reasons == []
 
 
+@pytest.mark.parametrize(
+    ("choices", "expected_valid", "message"),
+    [
+        pytest.param([("P1", 1)], True, "at least 3", id="short-list"),
+        pytest.param([], True, "unranked project", id="no-choices"),
+        pytest.param(
+            [("P1", 1), ("P1", 2)], False,
+            "project 'P1' more than once", id="repeated-project",
+        ),
+        pytest.param(
+            [("P1", 1), ("P2", 1)], False,
+            "rank 1 more than once", id="tied-rank",
+        ),
+        pytest.param(
+            [("P1", True)], False, "positive whole number", id="invalid-rank",
+        ),
+        pytest.param([("P1", 2)], False, "without gaps", id="rank-gap"),
+        pytest.param(
+            [("P99", 1)], False, "unknown project 'P99'", id="unknown-project",
+        ),
+    ],
+)
+def test_contract_returns_preference_diagnostics(
+    choices: list[tuple[str, int]], expected_valid: bool, message: str
+) -> None:
+    """PREF checks reach Team A as the contract's existing errors and warnings."""
+    student = models.Student(
+        "S1", "Student 1",
+        preferences=[
+            models.Preference("S1", project_id, rank)
+            for project_id, rank in choices
+        ],
+    )
+    request = contract.RunRequest(
+        students=[student],
+        projects=[
+            models.Project("P1", "Project 1"),
+            models.Project("P2", "Project 2"),
+            models.Project("P3", "Project 3"),
+        ],
+    )
+
+    outcome = solvers.AssignmentEngine().validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is expected_valid
+    messages = outcome.warnings if expected_valid else outcome.errors
+    assert any("S1" in item and message in item for item in messages), messages
+    assert outcome.infeasibility_reasons == []
+
+
 def test_contract_rejects_non_integer_capacity() -> None:
     """CAP-01: The engine returns a clear input error to its caller."""
     request = contract.RunRequest(

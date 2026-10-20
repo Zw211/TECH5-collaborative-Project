@@ -149,6 +149,71 @@ def _validate_skill_names(skills: list[models.Skill]) -> list[str]:
     return errors
 
 
+def _validate_preferences(
+    student: models.Student,
+    project_ids: set[str],
+    result: ValidationResult,
+) -> None:
+    """Adds preference errors and warnings without changing submitted choices."""
+    errors_before = len(result.errors)
+    seen_projects: set[str] = set()
+    seen_ranks: set[int] = set()
+    ranked_projects: set[str] = set()
+
+    for pref in student.preferences:
+        if pref.project_id not in project_ids:
+            result.errors.append(
+                f"Student '{student.id}' ranked unknown project "
+                f"'{pref.project_id}'. Project IDs are case-sensitive; "
+                "use an exact catalog ID."
+            )
+        if pref.project_id in seen_projects:
+            result.errors.append(
+                f"Student '{student.id}' ranked project '{pref.project_id}' "
+                "more than once. List each project only once."
+            )
+        seen_projects.add(pref.project_id)
+
+        if type(pref.rank) is not int or pref.rank < 1:
+            result.errors.append(
+                f"Student '{student.id}', project '{pref.project_id}': "
+                "preference rank must be a positive whole number."
+            )
+            continue
+
+        if pref.rank in seen_ranks:
+            result.errors.append(
+                f"Student '{student.id}' uses rank {pref.rank} more than once. "
+                "Give each project a different rank; tied ranks are not supported."
+            )
+        seen_ranks.add(pref.rank)
+        if pref.project_id in project_ids:
+            ranked_projects.add(pref.project_id)
+
+    if not student.preferences:
+        result.warnings.append(
+            f"Student '{student.display_name}' ({student.id}) has submitted "
+            "no ranked preferences; at least 3 are expected. "
+            "The student may receive an unranked project."
+        )
+    elif len(ranked_projects) < 3:
+        result.warnings.append(
+            f"Student '{student.id}' ranked {len(ranked_projects)} distinct "
+            "available projects; at least 3 are expected. "
+            "The student may receive an unranked project."
+        )
+
+    # Check gaps only after the individual entries have passed validation.
+    if student.preferences and len(result.errors) == errors_before:
+        expected_ranks = set(range(1, len(student.preferences) + 1))
+        if seen_ranks != expected_ranks:
+            result.errors.append(
+                f"Student '{student.id}': preference ranks must start at 1 "
+                f"and continue without gaps through {len(student.preferences)}. "
+                "Correct the submitted ranks; they have not been renumbered."
+            )
+
+
 def validate_cohort(
     students: list[models.Student],
     projects: list[models.Project],
@@ -171,6 +236,8 @@ def validate_cohort(
         Identifier and skill-name errors are rejected before feasibility checks.
         IDs are case-sensitive text with no surrounding whitespace.
         Non-integer capacities are rejected before capacity calculations.
+        Short preference lists warn; duplicate projects, tied or invalid ranks,
+        rank gaps, and unknown projects are rejected.
     """
     result = ValidationResult()
 
@@ -238,34 +305,15 @@ def validate_cohort(
 
     defined_skill_ids = {s.id for s in skills} if skills else None
 
+    if len(projects) < 3:
+        result.warnings.append(
+            f"Fewer than 3 projects are offered ({len(projects)} available); "
+            "students cannot rank "
+            "the expected minimum of 3."
+        )
+
     for student in students:
-        if not student.preferences:
-            result.warnings.append(
-                f"Student '{student.display_name}' ({student.id}) has "
-                "submitted no ranked preferences."
-            )
-
-        seen_ranks: set[int] = set()
-        seen_preferred_projects: set[str] = set()
-        for pref in student.preferences:
-            if pref.project_id not in project_ids:
-                result.errors.append(
-                    f"Student '{student.id}' ranked unknown project "
-                    f"'{pref.project_id}'. Project IDs are case-sensitive; "
-                    "use an exact catalog ID."
-                )
-            if pref.project_id in seen_preferred_projects:
-                result.warnings.append(
-                    f"Student '{student.id}' has multiple preferences for "
-                    f"project '{pref.project_id}'."
-                )
-            seen_preferred_projects.add(pref.project_id)
-
-            if pref.rank in seen_ranks:
-                result.warnings.append(
-                    f"Student '{student.id}' has duplicate rank {pref.rank}."
-                )
-            seen_ranks.add(pref.rank)
+        _validate_preferences(student, project_ids, result)
 
         if defined_skill_ids:
             for s_id in student.skills:

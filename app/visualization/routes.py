@@ -154,7 +154,7 @@ def _parse_and_validate_preferences(
     Returns:
         A tuple of (valid_preferences_list, invalid_project_ids_list).
         Prefer exact IDs. Accept a case-insensitive match only when unique.
-        Unknown or ambiguous tokens must be corrected before saving.
+        Unknown, ambiguous, or repeated choices must be corrected before saving.
     """
     raw_tokens = [p.strip() for p in pref_raw.split(",") if p.strip()]
 
@@ -178,15 +178,18 @@ def _parse_and_validate_preferences(
             invalid_ids.append(token)
             continue
 
-        if resolved_id not in seen:
-            seen.add(resolved_id)
-            valid_prefs.append(
-                models.Preference(
-                    student_id=student_id,
-                    project_id=resolved_id,
-                    rank=len(valid_prefs) + 1,
-                )
+        if resolved_id in seen:
+            invalid_ids.append(f"{token} (project '{resolved_id}' is repeated)")
+            continue
+
+        seen.add(resolved_id)
+        valid_prefs.append(
+            models.Preference(
+                student_id=student_id,
+                project_id=resolved_id,
+                rank=len(valid_prefs) + 1,
             )
+        )
 
     return valid_prefs, invalid_ids
 

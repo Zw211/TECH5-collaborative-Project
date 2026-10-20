@@ -204,6 +204,43 @@ def test_ambiguous_project_case_requires_exact_id(tmp_path: pathlib.Path) -> Non
     assert [pref.project_id for pref in saved.preferences] == ["ProjectA", "projecta"]
 
 
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("preferences_text", ["P1, P1", "P1, p1"])
+def test_repeated_preference_is_not_silently_saved(
+    tmp_path: pathlib.Path, operation: str, preferences_text: str
+) -> None:
+    """PREF-03: Repeated IDs and aliases must be corrected before saving."""
+    client = _make_client(tmp_path, "test_repeated_preference")
+    repositories.ProjectRepository().save(models.Project("P1", "Project 1"))
+    repositories.ProjectRepository().save(models.Project("P2", "Project 2"))
+    student_repo = repositories.StudentRepository()
+    path = "/students/new"
+    if operation == "update":
+        student_repo.save(models.Student(
+            "S1", "Original name", preferences=[models.Preference("S1", "P2", 1)]
+        ))
+        path = "/students/S1/edit"
+
+    response = client.post(
+        path,
+        data={
+            "id": "S1", "display_name": "Changed name",
+            "preferences_text": preferences_text,
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"repeated" in response.data
+    saved = student_repo.get_by_id("S1")
+    if operation == "create":
+        assert saved is None
+    else:
+        assert saved is not None
+        assert saved.display_name == "Original name"
+        assert saved.preferences == [models.Preference("S1", "P2", 1)]
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(

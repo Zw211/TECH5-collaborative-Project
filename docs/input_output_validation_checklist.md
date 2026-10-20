@@ -12,29 +12,17 @@ A database failure means an operation failed; it does not prove infeasibility.
 
 ## How we use the checkboxes
 
-- Change `[ ]` to `[x]` when we agree on the response, implement it, and have
-  passing tests that check the intended behaviour.
-- Add the test name and result below that item. Keep the item visible so
-  we retain the reason for the rule.
-- An expected failure (`xfail`) is unfinished work, so it stays unchecked.
-- Case boxes started unchecked for team review. We update them as work is
-  verified. Some starter behaviour already works; an unchecked box does not
-  necessarily mean code is missing.
-- Use synthetic records in tests. Include valid examples that should be
-  accepted, as well as bad examples that should be detected.
-
-Example evidence to add after completing an item:
-
-```text
-Evidence: tests/test_validation.py::test_capacity_errors
-Result: passed on YYYY-MM-DD. Example: minimum 5, maximum 2 was rejected.
-```
+- Mark `[x]` when the working response is agreed, implemented, and tested.
+- Keep unfinished output checks and expected failures (`xfail`) open.
+- Record rules and short test evidence here. Detailed history stays in Git.
+- Implemented branch policies still need normal team review; they do not
+  establish instructor approval of a solver or scoring method.
 
 ## Where we work
 
 | Area | Main implementation | Main tests |
 | --- | --- | --- |
-| Input checks and obvious feasibility problems | [app/domain/validation.py](../app/domain/validation.py), especially `validate_cohort()` | [tests/test_validation.py](../tests/test_validation.py), [tests/test_identifier_validation.py](../tests/test_identifier_validation.py), and the validation cases in [tests/test_edge_cases.py](../tests/test_edge_cases.py) |
+| Input checks and obvious feasibility problems | [app/domain/validation.py](../app/domain/validation.py), especially `validate_cohort()` | [tests/test_validation.py](../tests/test_validation.py), [tests/test_identifier_validation.py](../tests/test_identifier_validation.py), [tests/test_preference_validation.py](../tests/test_preference_validation.py), and [tests/test_edge_cases.py](../tests/test_edge_cases.py) |
 | Validation through the interface Team A uses | `AssignmentEngine.validate_inputs()` in [app/engine/solvers.py](../app/engine/solvers.py) | [tests/test_contract_and_engine.py](../tests/test_contract_and_engine.py) |
 | Producing feasible, distinct assignments | `execute_run()` and the strategies in `app/engine/solvers.py` | [tests/test_solvers.py](../tests/test_solvers.py) and `tests/test_edge_cases.py` |
 | Checking and comparing result measures | [app/engine/metrics.py](../app/engine/metrics.py) | [tests/test_metrics.py](../tests/test_metrics.py) |
@@ -47,221 +35,68 @@ database, and contract changes need coordination with Team A.
 
 ## Student, project, and skill identifiers
 
-- [x] ID-01 **No students** - reject the empty cohort with a clear message.
+- [x] ID-01 **No students** - reject the empty cohort before capacity calculations.
+- [x] ID-02 **No projects** - reject the empty catalogue before capacity calculations. If both lists are empty, report both errors.
+- [x] ID-03 **Blank identifiers** - reject empty or whitespace-only IDs, including IDs in preferences, requirements, student skills, and fixed assignments.
+- [x] ID-04 **Identifiers of the wrong type** - reject non-text IDs before lookups. Text `"7"` is valid; number `7` is not.
+- [x] ID-05 **Duplicate identifiers** - reject repeated IDs within each catalogue. Different IDs may have the same display name or title.
+- [x] ID-06 **Duplicate skill names** - reject names equal after ignoring surrounding spaces and letter case. Names must be nonempty text.
+- [x] ID-07 **A record refers to the wrong parent** - reject preferences or requirements whose owner ID differs from the containing student or project.
+- [x] ID-08 **Differences in case or spaces** - stored IDs are case-sensitive and cannot have surrounding whitespace. Explain unmatched references without changing them.
 
-  Verified on 2026-10-20 by `test_no_students_is_rejected`: no students
-  and a valid project return `Student cohort cannot be empty.` The
-  validator stops before capacity calculations. There is no separate
-  capacity-shortage claim based on the missing data.
+Forms keep their existing parsing: trim entry spaces and lowercase new skill
+IDs. Preference forms use exact IDs first, accepting a case-insensitive
+match only when unique. Ambiguous matches are rejected. SQLite and the
+engine keep `P1` and `p1` distinct. Skill-name comparison is stricter than
+SQLite's exact `UNIQUE` rule. The existing student form's separate restriction
+on duplicate display names is unchanged.
 
-- [x] ID-02 **No projects** - reject the empty project catalogue with a clear message.
+Evidence: `tests/test_identifier_validation.py` (58 examples), empty-input
+checks in `tests/test_validation.py`, and contract/form checks below.
 
-  Verified on 2026-10-20 by `test_no_projects_is_rejected`: one student
-  and no projects return `Project catalog cannot be empty.` The validator
-  stops before capacity calculations. There is no separate shortage claim.
+| Cases | Main tests | Verified response |
+| --- | --- | --- |
+| ID-01/02 | `test_no_students_is_rejected`, `test_no_projects_is_rejected`, `test_contract_rejects_empty_datasets` | Missing data give clear errors, without capacity-shortage claims. |
+| ID-03/04 | `test_invalid_catalogue_identifier_is_rejected`, `test_invalid_reference_identifiers_are_reported_together`, `test_unhashable_reference_identifiers_do_not_crash` | Blank, non-text, and padded IDs return field errors without crashing. |
+| ID-05/06 | `test_duplicate_identifiers`, `test_duplicate_skill_identifiers_are_rejected`, `test_duplicate_skill_names_are_rejected`, `test_skill_name_must_be_nonempty_text` | Duplicate IDs/names and unusable names are rejected. |
+| ID-07 | `test_preference_must_belong_to_containing_student`, `test_requirement_must_belong_to_containing_project` | Wrong owners are identified, including existing IDs and case differences. |
+| ID-08 | `test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique`, `test_unmatched_reference_case_is_explained_without_changing_ids`, `test_ambiguous_project_case_requires_exact_id` | Exact case-distinct references survive validation and persistence; ambiguous form input is rejected. |
+| Interface/forms | `test_contract_reports_identifier_and_parent_errors`, `test_create_skill_rejects_name_matching_padded_existing_name` | Errors reach Team A; rejected duplicate names are not saved. |
 
-- [x] ID-03 **Blank identifiers** - reject student, project, or skill IDs that are empty or only spaces. Apply the same rule to IDs inside preferences, requirements, student skill dictionaries, and fixed assignments.
-
-  Verified on 2026-10-20 by `test_invalid_catalogue_identifier_is_rejected`
-  and `test_invalid_reference_identifiers_are_reported_together` in
-  `tests/test_identifier_validation.py`. Empty text and whitespace-only
-  text return errors naming the affected record and field.
-
-- [x] ID-04 **Identifiers of the wrong type** - reject IDs that are not text, without crashing when comparing or looking them up.
-
-  Verified by the same tests and
-  `test_unhashable_reference_identifiers_do_not_crash`. Examples include
-  missing values, numbers, booleans, lists, and dictionaries. An ID must
-  already be text; the validator does not turn a number into an ID.
-  A list or dictionary cannot be a student skill dictionary key in Python,
-  so those two examples cover catalogue IDs and the other reference fields.
-
-- [x] ID-05 **Duplicate identifiers** - reject repeated IDs within the student, project, or skill catalogue. Similar display names alone do not establish duplicate identity.
-
-  Verified by the existing `test_duplicate_identifiers` and the added
-  `test_duplicate_skill_identifiers_are_rejected`. Positive examples in
-  `test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique`
-  and `test_identifier_may_be_numeric_text_and_reused_in_another_catalogue`
-  accept different IDs with the same display name, and allow a student,
-  project, and skill to each use the text ID `7` in their separate catalogues.
-  The domain validator does not require unique student display names;
-  the existing student form's separate name restriction is unchanged.
-
-- [x] ID-06 **Duplicate skill names** - reject names that become equal after ignoring surrounding spaces and letter case. Keep the original data unchanged.
-
-  Verified by `test_duplicate_skill_names_are_rejected`: `Python`,
-  `PYTHON`, and ` python ` conflict even when their skill IDs differ.
-  `test_skill_name_must_be_nonempty_text` also rejects missing, non-text,
-  or blank names before comparing them. The form already checked case
-  and trimmed new names; it now also trims existing names for comparison.
-  `test_create_skill_rejects_name_matching_padded_existing_name` verifies
-  that a rejected duplicate is not saved. This application rule is stricter
-  than SQLite's exact, case-sensitive `UNIQUE` check on skill names.
-
-- [x] ID-07 **A record refers to the wrong parent** - reject a preference inside S1 whose `student_id` is different, or a requirement inside P1 whose `project_id` is different.
-
-  Verified by `test_preference_must_belong_to_containing_student` and
-  `test_requirement_must_belong_to_containing_project`. Both cover another
-  existing record, an unknown record, and a case difference. The error
-  identifies the containing record and the incorrect reference.
-
-- [x] ID-08 **Differences in case or spaces** - use exact, case-sensitive stored IDs, reject surrounding whitespace in domain input, and explain unmatched references. Do not silently merge distinct records.
-
-  Verified by the positive case-sensitive example above,
-  `test_unmatched_reference_case_is_explained_without_changing_ids`,
-  the padded-ID examples, and the form/database workflow
-  `test_ambiguous_project_case_requires_exact_id`. The detailed rule and
-  the distinction between form parsing and domain input are below.
-
-### ID-01 and ID-02 implementation and verification
-
-The starter already checked for empty lists, but continued into capacity
-calculations and could add shortage messages. We now return immediately
-after collecting the missing-data messages. Both checks run before that
-return, so if both lists are empty the user receives both messages.
-
-The added code in `app/domain/validation.py` is:
-
-```python
-if not students or not projects:
-    result.is_valid = False
-    return result
-```
-
-`not students` is true when the student list is empty. `or` means either
-missing list is enough to reject the request. `is_valid = False` records
-that decision, and `return` stops the remaining checks. Correct the
-missing data and validate again before attempting assignment. The public
-contract is unchanged, and nonempty inputs continue through the existing
-checks as before.
-
-| Test | What it checks |
-| --- | --- |
-| `tests/test_validation.py::test_no_students_is_rejected` | No students and a project with bounds 1 to 2. Expect only the missing-students message, invalid input, and no mathematical infeasibility reason. |
-| `tests/test_validation.py::test_no_projects_is_rejected` | One student and no projects. Expect only the missing-projects message, invalid input, and no mathematical infeasibility reason. |
-| `tests/test_validation.py::test_empty_cohort_validation` | Both lists empty. The strengthened starter test requires both messages, exactly two errors, and no mathematical infeasibility reason. |
-| `tests/test_contract_and_engine.py::test_contract_rejects_empty_datasets` | Three separate examples: missing students, missing projects, and both missing. Each sends a `RunRequest` through `engine.validate_inputs()` and checks that the caller receives the expected `ValidationOutcome` and messages. |
-
-The existing standard-cohort contract test also checks that ordinary valid
-data remain accepted. The new tests use the existing domain classes,
-simple conditions, and assertions, following the local `tech5-simple-oop`
-skill. No new class or dependency is needed.
-
-Before the early return was added, the focused run had **4 failed and
-40 passed**. Those failures showed the extra shortage messages. After the
-change, this command returned **44 passed** on 2026-10-20:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_validation.py tests/test_contract_and_engine.py::test_contract_rejects_empty_datasets -q -p no:cacheprovider
-```
-
-This includes all 41 validation examples and the three new interface
-examples. A full-suite run then returned **4 failed, 123 passed,
-12 xfailed**. The four failures are still CAP-04's unfinished real-engine
-tests; there are no new full-suite failures from these changes. Results
-below for earlier capacity work describe those earlier stages.
-
-### ID-03 to ID-08 implementation and verification
-
-These are the implemented branch rules for this work. Other unchecked
-policies below still need discussion. No contract, domain model, or schema
-change is needed.
-
-`app/domain/validation.py` remains the main location because these rules
-apply to a run request from any caller, including data loaded from SQLite.
-It works with the existing `Student`, `Project`, `Skill`, `Preference`,
-`ProjectRequirement`, and `FixedAssignment` objects.
-
-Three small functions support `validate_cohort()`:
-
-- `_validate_identifier()` first checks that an ID is text, then checks
-  that it is not blank and has no surrounding whitespace. It returns
-  `True` or `False` and adds an understandable error when needed.
-- `_validate_identifiers()` checks catalogue IDs, duplicate IDs, all
-  reference IDs, and whether preferences and requirements belong to
-  the objects containing them. `enumerate(..., start=1)` numbers records
-  in error messages, which helps when an ID itself is unusable.
-- `_validate_skill_names()` checks names before comparing them. `strip()`
-  ignores surrounding whitespace for the comparison; `casefold()` lets
-  names such as `Python` and `PYTHON` compare as equal. A dictionary records
-  the first skill ID using each compared name so an error can name both.
-
-The validator collects these errors and returns invalid input before
-capacity totals, set lookups on references, or mandatory-skill calculations.
-For example, two records with ID `S1` must be corrected before claiming
-that their combined demand makes a project too small.
-`test_bad_identifier_stops_feasibility_checks` verifies this.
-No infeasibility reason is added from these bad records. The existing
-contract's `is_valid` flag tells the caller to correct the input first;
-an empty infeasibility-reason list does not promise a feasible allocation.
-
-The ID rules are:
-
-| Situation | Implemented response |
-| --- | --- |
-| Domain input contains `" P1 "` | Reject with an error about surrounding whitespace. Correct the ID and its references together. Do not silently strip stored IDs. |
-| Domain input contains number `7` | Reject because it is not text. The text `"7"` is allowed. |
-| Stored IDs are `P1` and `p1` | Treat them as different IDs, matching SQLite's text comparison. Exact references to each remain valid. |
-| A reference uses `p1`, but only `P1` exists | Report an unmatched ID and explain that IDs are case-sensitive. Do not change the reference. |
-| A new record is entered through a form | Keep the existing parsing: trim surrounding form spaces; new skill IDs are also lowercased. The resulting domain objects use the stored IDs. |
-| A preference form contains a different case | Preserve the existing convenience when exactly one project matches. If several IDs match without case, require the exact spelling and save nothing until corrected. |
-
-The preference form previously could choose one of several case matches.
-`app/visualization/routes.py` now uses an exact match first and accepts
-a case-insensitive match only when unique. Its error tells the user to
-use exact spelling. The new form test rejects `PROJECTA` when `ProjectA`
-and `projecta` both exist, then saves and reloads both exact references
-separately. The existing `test_create_student_preference_validation`
-still verifies that `p1` can resolve to the sole stored project `P1`.
-
-Unknown skill references keep the starter's warning behaviour when a
-nonempty catalogue is supplied; their messages now explain exact matching.
-The decision to reject all unknown skills and the handling of an absent
-or empty skill catalogue remain open under SKILL-04 and SKILL-05.
-Preference ranks and skill levels are separate unfinished checks.
+Identifier and skill-name errors stop validation before feasibility checks.
 The repositories' direct `save()` methods have not gained these checks;
-invalid saved records and database failures remain under DB-01 to DB-03.
-
-The new file `tests/test_identifier_validation.py` contains **58 examples**.
-Before the implementation, it returned **52 failed, 6 passed**. After the
-implementation, all 58 pass. One additional contract test,
-`test_contract_reports_identifier_and_parent_errors`, confirms that
-Team A's interface returns several structural errors together. Two new
-form/database tests cover ambiguous project IDs and existing padded skill
-names. Both form tests failed before their respective fixes and now pass.
-All examples use synthetic records.
-
-On 2026-10-20, this focused command returned **149 passed**:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_identifier_validation.py tests/test_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_persistence.py -q --tb=short -p no:cacheprovider
-```
-
-The full check returned **4 failed, 184 passed, 12 xfailed**:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
-```
-
-The four failures are still the four
-`test_real_engine_accepts_capacity_boundaries` examples: `execute_run()`
-raises `NotImplementedError`. They are unfinished CAP-04 output work.
-There are no new full-suite failures from ID-03 to ID-08, but the branch
-does not yet satisfy the passing-suite rule for merging. The form and
-database tests needed access to temporary test folders; the first
-restricted attempt could not open those folders. Counts above come from
-completed runs with that access.
+loading invalid saved records remains DB-01 work. Unknown skill handling
+remains open under SKILL-04/05.
 
 ## Project preferences supplied by students
 
-- [ ] PREF-01 **Incomplete project preferences from a student** - we are assuming a warning is enough, pending team confirmation. Warn when fewer than three projects are ranked, as the brief expects at least three. Also explain when fewer than three projects are offered.
-- [ ] PREF-02 **No preferences at all** - we are assuming a warning, pending confirmation. Explain that the student may receive an unranked project; agree on scoring before using this in the solver.
-- [ ] PREF-03 **The same project appears twice in one student's list** - propose rejecting the duplicate and asking for a correction. The current validator warns, but the database cannot store duplicate student/project preferences.
-- [ ] PREF-04 **One student gives two projects the same rank** - decide the tie policy. Propose rejecting until ties can be represented consistently: the current validator warns, but the database requires unique ranks per student.
-- [ ] PREF-05 **Several students want the same project** - accept this as normal competition. The solver must respect capacity and explain how competing preferences are handled.
-- [ ] PREF-06 **Invalid preference ranks** - reject zero, negative numbers, fractions, text, missing values, or booleans. A rank should be a positive whole number.
-- [ ] PREF-07 **Gaps in the ranks, such as 1, 3, 7** - decide whether these are allowed positions or mistaken input. Warn or reject according to the agreed rule; do not silently change the ranks.
-- [ ] PREF-08 **A preference refers to an unknown project** - reject the reference and identify the affected student and project.
+Working branch policies: short/empty lists warn, duplicate projects and tied
+ranks are rejected to match SQLite's unique preference rules.
+The user confirmed rank-gap rejection on 2026-10-20. Other policies await
+team review; unranked scoring and assignment tie-breakers remain open.
+
+- [x] PREF-01 **Incomplete project preferences** - warn when fewer than three distinct available projects have valid ranks. Also warn when fewer than three projects are offered.
+- [x] PREF-02 **No preferences at all** - warn that the student may receive an unranked project. Do not invent preferences or reject solely for this reason. Scoring remains OUT-05/12 work.
+- [x] PREF-03 **The same project appears twice** - reject and ask for a correction. Forms reject repeated IDs and aliases before saving, instead of silently removing duplicates.
+- [x] PREF-04 **One student gives two projects the same rank** - reject tied ranks until the app and database can represent them consistently.
+- [ ] PREF-05 **Several students want the same project** - input validation accepts this as normal competition (verified). Solver capacity enforcement and explanation remain unfinished; see OUT-04 and `test_edge_case_2_tied_preferences_across_students` (`xfail`).
+- [x] PREF-06 **Invalid preference ranks** - reject zero, negatives, fractions, floats, text, missing values, booleans, and non-finite numbers. Ranks must be positive whole numbers.
+- [x] PREF-07 **Gaps in the ranks** - reject gaps or a first rank other than 1. Require ranks 1 through N, where N is the number of choices. Input list order may differ; do not renumber or reorder submitted records.
+- [x] PREF-08 **Unknown project** - reject and identify the affected student and project.
+
+Evidence: `tests/test_preference_validation.py` (35 examples), plus contract
+and form tests. All use synthetic records.
+
+| Cases | Main tests | Example and expected result |
+| --- | --- | --- |
+| PREF-01 | `test_short_preference_list_warns`, `test_small_project_catalogue_is_explained`, `test_three_or_more_valid_preferences_need_no_warning`, `test_bad_entries_do_not_count_as_three_choices` | One/two choices warn; three/four valid choices pass without preference warnings. Duplicates and unknown projects do not inflate the count. |
+| PREF-02 | `test_no_preferences_warns_about_unranked_assignment` | Empty preferences remain empty; return a warning mentioning an unranked project. |
+| PREF-03/04 | `test_repeated_project_is_rejected`, `test_tied_ranks_within_one_student_are_rejected` | Repeated project IDs and tied ranks return errors for that student. |
+| PREF-05 input | `test_students_can_compete_for_the_same_first_choice` | Two students ranking a one-place project first are valid input when other places exist. No assignments are produced by this test. |
+| PREF-06 | `test_preference_rank_must_be_a_positive_integer`, `test_multiple_preference_errors_are_reported_together` | Fifteen bad rank values are rejected without crashes; several errors are returned together. |
+| PREF-07 | `test_rank_gaps_are_rejected_without_renumbering`, `test_valid_ranks_need_not_arrive_in_sorted_order` | Reject 1/3/7 and a huge rank; accept unsorted records carrying ranks 1/2/3, leaving records unchanged. |
+| PREF-08 | `test_unknown_preference_project_identifies_student_and_project` | Return an error naming S1 and unknown project P99. |
+| Interface/forms | `test_contract_returns_preference_diagnostics` (7 examples), `test_repeated_preference_is_not_silently_saved` (4 examples) | Team A receives errors/warnings. Rejected create/edit forms save nothing or preserve the previous student record. |
 
 ## Student skills and project requirements
 
@@ -276,214 +111,20 @@ completed runs with that access.
 
 ## Project capacities
 
-- [x] CAP-01 **Missing or non-integer capacities** - reject before calculations. Cover `None`, blank text, numeric text passed directly to the engine, fractions, booleans, and non-finite numbers. Forms may parse valid text into integers before calling the engine.
+- [x] CAP-01 **Missing or non-integer capacities** - reject before calculations. Include missing/blank values, numeric text, fractions, booleans, and non-finite numbers. Forms may parse text into integers first.
+- [x] CAP-02 **Negative minimum or non-positive maximum** - reject. Minimum must be at least 0 and maximum at least 1, matching SQLite.
+- [x] CAP-03 **Minimum exceeds maximum** - reject and identify the project and bounds.
+- [ ] CAP-04 **Capacity exactly at a boundary** - valid input bounds pass, including minimum 0 and equal bounds. Four real-engine output tests still fail because `execute_run()` is unfinished; see OUT-04.
 
-  Tests written: `test_minimum_capacity_must_be_an_integer` and
-  `test_maximum_capacity_must_be_an_integer` in `tests/test_validation.py`.
-  Each runs with 12 invalid values. Before implementation on 2026-10-20,
-  all 24 examples failed: the validator could crash, accept the value, or
-  report the wrong kind of error.
+Evidence: capacity cases in `tests/test_validation.py`, the contract test,
+and `tests/test_solvers.py`.
 
-  Implemented and verified on 2026-10-20: a separate check now inspects
-  both capacity types for every project before capacity calculations.
-  Only Python integers are accepted, excluding floats and booleans. It
-  collects errors naming the project and field, then returns invalid input
-  if any capacity has the wrong type. All 24 original examples now pass.
-  `test_capacity_type_errors_are_reported_together` and
-  `test_contract_rejects_non_integer_capacity` also pass, covering several
-  bad fields together and the engine interface used by Team A.
-
-  Results when CAP-01 was implemented: **40 focused tests passed**.
-  The full-suite result at that stage was:
-  **4 failed, 118 passed, 12 xfailed**. The remaining four failures are
-  CAP-04's real-engine tests. See the implementation notes below.
-
-- [x] CAP-02 **Negative minimum or non-positive maximum capacity** - reject. Under the existing schema, minimum must be at least 0 and maximum at least 1.
-
-  Evidence: `test_negative_minimum_capacity_is_rejected` checks -1 and -2;
-  `test_non_positive_maximum_capacity_is_rejected` checks 0 and -1.
-  All four examples passed on 2026-10-20 using the existing validator.
-
-- [x] CAP-03 **Minimum capacity is larger than maximum capacity** - reject and identify the project and conflicting values.
-
-  Evidence: `test_capacity_errors` checks minimum 5 and maximum 2.
-  Its error-message assertion now also checks that P1 and both conflicting
-  values are identified.
-  This test passed on 2026-10-20 using the existing validator.
-
-- [ ] CAP-04 **Capacity exactly at a boundary** - accept otherwise feasible allocations with headcount equal to the minimum or maximum. Minimum 0 and minimum equal to maximum are valid input bounds.
-
-  Input-validation evidence: `test_zero_minimum_capacity_is_allowed`,
-  `test_cohort_at_minimum_capacity_is_allowed`,
-  `test_cohort_at_maximum_capacity_is_allowed`, and
-  `test_equal_minimum_and_maximum_capacity_is_allowed` all passed on
-  2026-10-20. These show that valid boundary inputs are accepted.
-  Output tests are also written: `test_real_engine_accepts_capacity_boundaries`
-  in `tests/test_solvers.py` tries the same four boundary cases. All four
-  fail with `NotImplementedError` because the real engine's `execute_run()`
-  is unfinished. The checkbox remains open until those output tests pass.
-  That output work is related to OUT-04.
-
-### Capacity test walkthrough
-
-Most test functions below are in `tests/test_validation.py`.
-They use the existing `Student`, `Project`, and, where needed,
-`FixedAssignment` classes. Each makes a small example, calls
-`validate_cohort()`, then uses `assert` to check the returned result.
-An assertion fails if its condition is false. These validation tests do
-not create assignments or use the database. The interface test is in
-`tests/test_contract_and_engine.py` and calls `engine.validate_inputs()`.
-The actual output test is in `tests/test_solvers.py`.
-
-| Test | Example and expected result |
-| --- | --- |
-| `test_minimum_capacity_must_be_an_integer` | One student, maximum 3, and an invalid minimum. Expect invalid input, an error naming P1 and its minimum capacity and asking for a whole number, and no mathematical infeasibility claim based on the invalid value. |
-| `test_maximum_capacity_must_be_an_integer` | One student, minimum 0, and an invalid maximum. Expect the same checks, but the message must identify the maximum capacity. |
-| `test_capacity_type_errors_are_reported_together` | Two students and three projects. P1 and P2 have four invalid capacity fields in total; P3 is valid but has only one place. Expect all four field errors and no claim of a shortage based only on P3. |
-| `test_contract_rejects_non_integer_capacity` | Send a `RunRequest` with maximum capacity `"2"` to `engine.validate_inputs()`. Expect a `ValidationOutcome` that rejects the input, identifies P1 and its maximum, and does not claim mathematical infeasibility. |
-| `test_negative_minimum_capacity_is_rejected` | One student, maximum 3, and minimum -1 or -2. Expect invalid input and an error identifying P1's negative minimum. |
-| `test_non_positive_maximum_capacity_is_rejected` | One student, minimum 0, and maximum 0 or -1. Expect invalid input and an error identifying P1's non-positive maximum. |
-| `test_capacity_errors` | One student and P1 with minimum 5 and maximum 2. Expect invalid input and a message saying P1's minimum exceeds its maximum. This strengthens the existing starter test. |
-| `test_zero_minimum_capacity_is_allowed` | One student and a project with minimum 0 and maximum 1. Expect valid input and no feasibility problem detected by these checks. This also checks the smallest valid maximum, 1. |
-| `test_cohort_at_minimum_capacity_is_allowed` | Two students and one project with minimum 2 and maximum 3. Expect acceptance: having exactly the minimum number of students is allowed. |
-| `test_cohort_at_maximum_capacity_is_allowed` | Two students, both fixed to the only project, with minimum 1 and maximum 2. Expect acceptance: neither the total cohort nor the number of locks exceeds the maximum. |
-| `test_equal_minimum_and_maximum_capacity_is_allowed` | Two students and one project with minimum 2 and maximum 2. Expect acceptance: a project may require an exact headcount. |
-| `test_real_engine_accepts_capacity_boundaries` | Run the real engine for each of the four valid boundary examples above, fixing the students to P1. The zero-minimum example also includes P2 with minimum 0, which must stay empty. Expect one completed solution containing every student exactly once, all assigned to P1, with headcount between the bounds. |
-
-The first two tests share `INVALID_CAPACITIES`: `None`, empty text, spaces,
-`"2"`, `"two"`, `1.5`, `2.0`, `True`, `False`, not-a-number, positive infinity,
-and negative infinity. Numeric text belongs to form parsing; direct engine
-input must already contain integers. A whole-looking float such as `2.0`
-still has the wrong type. Booleans are not headcounts even though Python
-can treat them like 1 and 0. The non-finite values are not usable headcounts.
-
-`@pytest.mark.parametrize` tells pytest to run the same test separately
-for each listed value. `pytest.param(..., id="...")` gives the example a
-readable name in the results. This gives 24 independent CAP-01 examples,
-so the first failure does not prevent pytest from trying the other values.
-
-The `object` type hint lets the two test functions receive deliberately bad
-inputs. `# type: ignore[arg-type]` tells a static type checker that passing
-the wrong type to `Project` is intentional in this test; it does not catch
-exceptions, change the value, or skip the test.
-
-For rejected inputs, `is_valid is False` checks the decision.
-`any(... for error in result.errors)` checks that at least one returned
-message explains the specific problem and identifies P1. The CAP-01 tests
-also require an empty `infeasibility_reasons` list: invalid values must be
-rejected before using them to claim a mathematical capacity shortage.
-
-For accepted boundaries, the four assertions check that the input is valid,
-the preliminary checks detect no infeasibility, and both error lists are
-empty. Missing preference lists can produce warnings in these small
-capacity-only examples; that does not make the capacity bounds invalid.
-These validation tests do not check assignments returned by the solver.
-
-The additional real-engine test uses `tmp_path`, a temporary folder pytest
-provides for each example. `create_app()` points the test at a new SQLite
-file there, keeping the application's normal database separate. A simple
-loop builds one or two students, each ranking P1 first and fixed to P1.
-Locks keep the expected allocation unambiguous. In the zero-minimum case,
-an extra project P2 has minimum 0 and must remain unused. This checks that
-zero is allowed as the actual headcount of an optional project too.
-The test creates a `RunRequest` asking for one alternative, then calls the real
-`AssignmentEngine.execute_run()` rather than the mock.
-
-Its assertions require a completed run with one solution. The number of
-assignments must equal the number of supplied students, and the returned
-student IDs must exactly match the supplied IDs. Together, these two checks
-catch duplicate or missing students. Every assignment must refer to P1,
-and the final headcount must respect both bounds, including equality.
-The same four sets of bounds and student counts run as separate tests.
-All four currently stop at `execute_run()` with `NotImplementedError`;
-none reaches the output assertions yet.
-
-First focused run on 2026-10-20:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_validation.py -q --tb=short
-```
-
-Result: **24 failed, 14 passed**. CAP-01 accounts for all 24 failures. The
-passing tests include CAP-02, CAP-03, CAP-04 input checks, and the five
-other existing validation tests. Pytest also reported two cache-writing
-warnings; they do not account for the assertion failures or type errors.
-No new tests were marked as expected failures. Validator code was unchanged
-during that earlier test-writing step.
-
-Full-suite verification of the earlier test-writing step, before CAP-01
-was implemented:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q --tb=no -p no:cacheprovider
-```
-
-Result at that stage on 2026-10-20: **28 failed, 92 passed, 12 xfailed**. There were
-24 failures for CAP-01's missing integer checks and four failures for
-CAP-04's unfinished real engine. The 12 expected failures belong to existing
-unfinished features. The first full run encountered sandbox restrictions
-on pytest's temporary folders; the reported result is from the authorized
-rerun with access to those folders. Cache writing was disabled for that
-run; disabling the cache does not change assertion behaviour.
-
-### CAP-01 implementation and verification
-
-`validate_cohort()` now checks both capacity types for every project before
-the existing range checks or calculations. The code uses a normal loop and
-two `if` statements:
-
-```python
-type(project.min_capacity) is not int
-type(project.max_capacity) is not int
-```
-
-These expressions detect values that are not Python integers. This also
-rejects `True` and `False`, whose type is `bool`, and `2.0`, whose type is
-`float`. No conversion is attempted inside the validator; form parsing
-should already have converted valid number text into integers.
-
-`has_invalid_capacity` starts as `False`. Finding a bad field adds a clear
-error and sets the flag to `True`. The loop keeps checking so all bad
-capacity fields can be reported together. After the loop, a true flag
-makes the function set `is_valid` to `False` and return the result before
-capacity calculations or fixed-assignment comparisons. Other checks can
-continue when the caller corrects these values and validates again.
-
-For example, a text maximum for P1 gives this message:
-
-```text
-Project 'P1': maximum capacity must be a whole number.
-```
-
-The existing negative-capacity and inverted-bound checks still run when
-the types are correct. Zero remains a valid minimum and one remains a
-valid maximum. The public component contract is unchanged.
-
-The two added regression tests check more than single bad values:
-
-- `test_capacity_type_errors_are_reported_together` checks that both bad
-  fields in P1 and both in P2 are reported. It also catches an incorrect
-  approach that skips those projects and reports a shortage using only
-  valid P3's one place for two students.
-- `test_contract_rejects_non_integer_capacity` checks that Team A can receive
-  the same clear rejection through the engine's existing interface.
-
-Focused check on 2026-10-20:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_validation.py tests/test_contract_and_engine.py::test_contract_rejects_non_integer_capacity -q -p no:cacheprovider
-```
-
-Result: **40 passed** (39 validation examples and the new contract example).
-The full-suite command shown above then returned **4 failed, 118 passed,
-12 xfailed**. All 24 original CAP-01 examples and both new regression tests
-pass. Only CAP-04's four real-engine examples fail because `execute_run()`
-is still unimplemented. The branch therefore still does not meet the
-repository's passing full-suite requirement.
-
-There are now 12 capacity-related test functions covering 39 examples:
-26 for CAP-01, four for CAP-02, one for CAP-03, and eight for CAP-04
-(four input checks and four real-engine output checks).
+| Cases | Main tests | Verified response |
+| --- | --- | --- |
+| CAP-01 | `test_minimum_capacity_must_be_an_integer`, `test_maximum_capacity_must_be_an_integer`, `test_capacity_type_errors_are_reported_together`, `test_contract_rejects_non_integer_capacity` | Reject 12 invalid values per field; collect several field errors and return them through the contract without false shortage claims. |
+| CAP-02/03 | `test_negative_minimum_capacity_is_rejected`, `test_non_positive_maximum_capacity_is_rejected`, `test_capacity_errors` | Invalid ranges are rejected with the affected project/bounds. |
+| CAP-04 input | `test_zero_minimum_capacity_is_allowed`, `test_cohort_at_minimum_capacity_is_allowed`, `test_cohort_at_maximum_capacity_is_allowed`, `test_equal_minimum_and_maximum_capacity_is_allowed` | All four input boundaries pass. |
+| CAP-04 output | `test_real_engine_accepts_capacity_boundaries` | Four failures at `NotImplementedError`; actual assignment assertions are not reached. |
 
 ## Fixed assignments
 
@@ -538,60 +179,30 @@ real optimization method works.
 - [ ] DB-03 **Saving fails partway through** - roll back the affected transaction so related records are not left partly saved. Report whether saving succeeded; do not claim persistence succeeded after an error.
 - [ ] DB-04 **Input records change or are deleted after a saved run** - agree how history is preserved. The current schema can cascade deletion of students or projects to saved assignments; avoid presenting an altered old run as its original result.
 
-## Existing evidence and next steps
+## Verification and next steps
 
-The six original tests in `tests/test_validation.py` exercise empty datasets,
-duplicate student/project IDs, inverted capacity bounds, contradictory locks,
-locks exceeding capacity, and a total capacity deficit. They do not cover
-every input type or every case above.
-
-The contract test `test_contract_validate_inputs` checks a standard cohort
-and an infeasible request through the engine interface. Further validation
-examples already exist in `tests/test_edge_cases.py`.
-
-Capacity tests for CAP-01 to CAP-04 are written, and CAP-01's integer checks
-are now implemented and passing. CAP-04's output tests will be completed by
-implementing the real engine using the approved assignment method. Next
-input-validation priorities are SKILL-02, SKILL-03, and PREF-06;
-ID-01 through ID-08 are now implemented and verified. The ID rules also
-touch Team A's existing form checks and should be included in shared-path
-review before merging.
-For each small change, run the relevant tests and update its evidence before
-moving on. Review policy questions
-such as ties, missing preferences, mandatory-skill coverage, and partial
-allocation with the team rather than deciding them silently in code.
-
-From the repository root, this checks the existing validation tests and the
-engine's validation interface:
+On 2026-10-20, **195 focused tests passed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_validation.py tests/test_contract_and_engine.py::test_contract_validate_inputs -v
+.\.venv\Scripts\python.exe -m pytest tests/test_preference_validation.py tests/test_identifier_validation.py tests/test_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_persistence.py -q --tb=short -p no:cacheprovider
 ```
 
-Before a pull request, run the repository's full check:
+Full suite: **230 passed, 12 xfailed, 4 failed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
 ```
 
-Record the date, command, and actual results when completing cases. Preserve
-the current component contract and indicator keys unless a change has been
-coordinated with both teams. Instructor approval of the proposed assignment
-method should be recorded separately from validation test results.
+The four failures are the existing CAP-04 real-engine boundary tests;
+`execute_run()` is not implemented. No new full-suite failures. The branch
+still does not meet the passing-suite requirement for merging. Database
+checks ran with access to pytest's separate temporary databases.
 
-Drafted on 2026-10-20 with AI assistance from the supplied requirements and
-inspection of the starter code and tests. Updated on the same date with
-CAP-01 to CAP-04 tests, observed results, a plain-language walkthrough,
-and the CAP-01 implementation and its two regression tests. The project
-`tech5-simple-oop` skill was also updated to explain the purpose and scope
-of approval requests in everyday words. A further update on the same date
-verified ID-01 and ID-02, added an early return and five new test examples,
-and strengthened the existing both-empty test. The local skill also now
-states that ignored instruction files should stay local unless the user
-explicitly asks to share them.
-A further update implemented and verified ID-03 to ID-08, added 61 test
-examples across domain, contract, and form checks, and recorded the exact
-ID and skill-name rules above. AI assisted with implementation, tests, and
-this documentation. The existing solver remains unfinished.
-Responses remain proposed unless recorded as verified above. Student
-understanding of the changes has not yet been demonstrated.
+Next: SKILL-02, SKILL-03, and the open policy/solver checks. Shared form
+changes need the normal cross-team PR review. No contract, model, schema,
+solver method, or scoring formula changed in this preference work.
+
+AI assisted with implementation, synthetic tests, and this checklist on
+2026-10-20. Preference work added 35 domain, 7 contract, and 4 form examples.
+Earlier detailed test walkthroughs were shortened into the tables above;
+their history remains in Git. Student understanding is not yet verified.
