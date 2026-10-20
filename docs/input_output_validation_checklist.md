@@ -158,11 +158,11 @@ and `tests/test_solvers.py`.
 - [x] FIX-04 **Locks exceed maximum capacity** - report infeasibility for distinct valid locked students exceeding the project's places. Reject the new form submission without changing existing locks.
 - [x] FIX-05 **Unsupported status** - accept `APPROVED`, `MANDATORY`, and `CONDITIONAL` as active locks, matching the existing form. Reject other values, including non-text values; no status silently disables a lock.
 
-Evidence: `tests/test_fixed_validation.py` (19 examples) and
+Evidence: `tests/test_fixed_validation.py` (24 examples) and
 `test_invalid_lock_form_preserves_existing_lock` (6 web examples).
 `validate_fixed_assignments()` is shared by cohort validation and the lock form.
 Tests cover conflicts, duplicates, unknown IDs, capacity equality/excess,
-statuses, unusable IDs, contract messages, and unchanged saved locks.
+statuses, unusable IDs/capacities, contract messages, and unchanged saved locks.
 All use synthetic records; no assignment solver is used.
 
 ## Feasibility and project demand
@@ -218,23 +218,29 @@ real optimization method works.
 
 ## Database records and failures
 
-- [ ] DB-01 **Invalid saved records** - detect invalid references, levels, ranks, or capacities when loading. Report the affected records. Do not silently repair or drop them and claim the original cohort was solved.
-- [ ] DB-02 **The database cannot be opened, read, or written** - return a useful failure message for a locked, unavailable, read-only, or damaged database. Do not label this as mathematical infeasibility.
-- [ ] DB-03 **Saving fails partway through** - roll back the affected transaction so related records are not left partly saved. Report whether saving succeeded; do not claim persistence succeeded after an error.
-- [ ] DB-04 **Input records change or are deleted after a saved run** - agree how history is preserved. The current schema can cascade deletion of students or projects to saved assignments; avoid presenting an altered old run as its original result.
+- [x] DB-01 **Invalid saved records** - check references and raw mandatory flags before a run; check loaded levels, ranks, and capacities with the shared validator. Identify affected records and generate no assignments from rejected inputs. Never convert saved text `"false"` into `True`.
+- [x] DB-02 **The database cannot be opened, read, or written** - show a database-unavailable message for locked, unavailable, read-only, or damaged databases. Return HTTP 503; this is not mathematical infeasibility.
+- [x] DB-03 **Saving fails partway through** - roll back related records together. Student edits, run saves, scenario replacement, and mock-run input/run writes are atomic. A failed rerun also rolls back its new lock; an unknown scenario leaves input unchanged.
+- [ ] DB-04 **Input records change or are deleted after a saved run** - later history work needs a snapshot policy and tests. The current schema can cascade deletion of students or projects to saved assignments. Old runs are not immutable records of their original inputs/results.
+
+Evidence: `tests/test_database_validation.py` (17 examples), five extra bad-capacity
+lock checks, and four lock-and-rerun web examples. Tests use real SQLite errors,
+invalid saved rows, and failed writes; they check both messages and saved data.
+Mock reruns validate the source pair and current inputs before saving a lock.
+The mock algorithm and database schema are unchanged.
 
 ## Verification and next steps
 
-On 2026-10-20, the run-settings/interface focused checks returned **121 passed**:
+On 2026-10-20, database/fixed-assignment/integration checks returned **113 passed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_run_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_component_integration.py -q --tb=short -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/test_database_validation.py tests/test_fixed_validation.py tests/test_persistence.py tests/test_component_integration.py tests/test_visualization_component.py -q --tb=short -p no:cacheprovider
 ```
 
-Full suite: **411 passed, 12 xfailed, 4 failed**:
+Full suite: **437 passed, 12 xfailed, 4 failed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest -q --tb=no -p no:cacheprovider
 ```
 
 The four failures are the existing CAP-04 real-engine boundary tests;
@@ -242,7 +248,7 @@ The four failures are the existing CAP-04 real-engine boundary tests;
 still does not meet the passing-suite requirement for merging. Database
 checks ran with access to pytest's separate temporary databases.
 
-Next: database input checks and the Week 1 handoff for deferred output cases. Shared form
+Next: audit input entry points and document the Week 1 handoff for deferred output cases. Shared form
 changes need the normal cross-team PR review. No contract, model, schema,
 or solver method changed. General scoring remains unfinished; only the
 documented no-requirement skill-fit case is implemented.
@@ -262,3 +268,5 @@ Fixed checks were committed and pushed as `716d52a`. Feasibility work added
 or assignment method has been implemented or claimed approved.
 Feasibility input checks were pushed as `e8ad14c`. Run settings added 36
 domain/form and 6 web examples, with validation now enforced before a mock run.
+Run settings were pushed as `6a535ea`. Database work adds the 26 examples
+summarised above, clear failure pages, and shared transactions for mock workflows.

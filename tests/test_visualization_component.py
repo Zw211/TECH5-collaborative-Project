@@ -361,6 +361,43 @@ def test_invalid_cohort_is_recorded_without_mock_solutions(tmp_path: pathlib.Pat
     assert b"MockAssignmentEngine for demonstration" not in response.data
 
 
+@pytest.mark.parametrize("case", ["valid", "conflicting-lock", "forged-pair", "unknown-source"])
+def test_lock_and_rerun_validates_before_saving(tmp_path: pathlib.Path, case: str) -> None:
+    """The alternative run entry point must enforce the same input checks."""
+    client = _make_client(tmp_path, "test_validated_lock_rerun")
+    for student_id in ["S1", "S2"]:
+        repositories.StudentRepository().save(models.Student(student_id, student_id))
+    for project_id in ["P1", "P2"]:
+        repositories.ProjectRepository().save(models.Project(project_id, project_id))
+    source = models.Solution(
+        "source-solution", "source-run", 1, "PREFERENCE",
+        assignments=[models.Assignment("S1", "P2"), models.Assignment("S2", "P1")],
+    )
+    repositories.RunRepository().save_run(models.AssignmentRun("source-run", status="COMPLETED", solutions=[source]))
+    if case == "conflicting-lock":
+        repositories.FixedAssignmentRepository().save(models.FixedAssignment("S1", "P1"))
+    source_id = "missing" if case == "unknown-source" else source.id
+    project_id = "P1" if case == "forged-pair" else "P2"
+
+    response = client.post(
+        f"/solutions/{source_id}/lock-and-rerun",
+        data={"student_id": "S1", "project_id": project_id}, follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    locks = repositories.FixedAssignmentRepository().list_all()
+    runs = repositories.RunRepository().list_runs()
+    if case == "valid":
+        assert len(runs) == 2
+        assert len(locks) == 1 and locks[0].project_id == "P2"
+    else:
+        assert len(runs) == 1
+        if case == "conflicting-lock":
+            assert len(locks) == 1 and locks[0].project_id == "P1"
+        else:
+            assert locks == []
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(

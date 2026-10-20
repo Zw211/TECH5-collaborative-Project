@@ -112,20 +112,20 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
 
         # Synchronize entities to DB
         if request.skills:
-            skill_repo = repositories.SkillRepository()
+            skill_repo = repositories.SkillRepository(self.run_repo.db)
             for sk in request.skills:
                 skill_repo.save(sk)
 
-        proj_repo = repositories.ProjectRepository()
+        proj_repo = repositories.ProjectRepository(self.run_repo.db)
         for proj in request.projects:
             proj_repo.save(proj)
 
-        stud_repo = repositories.StudentRepository()
+        stud_repo = repositories.StudentRepository(self.run_repo.db)
         for stud in request.students:
             stud_repo.save(stud)
 
         if request.fixed_assignments:
-            fixed_repo = repositories.FixedAssignmentRepository()
+            fixed_repo = repositories.FixedAssignmentRepository(self.run_repo.db)
             for fa in request.fixed_assignments:
                 fixed_repo.save(fa)
 

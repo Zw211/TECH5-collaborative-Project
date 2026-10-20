@@ -12,6 +12,51 @@ from app.domain import models
 from app.persistence import database
 
 
+class CohortRepository:
+    """Replaces related cohort records in one transaction after caller validation."""
+
+    def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        self.db = db or database.db_manager
+
+    def replace(
+        self, students: list[models.Student], projects: list[models.Project],
+        skills: list[models.Skill], fixed_assignments: list[models.FixedAssignment],
+    ) -> None:
+        """Commits the complete replacement, or rolls back all of it on failure."""
+        with self.db.connection() as conn:
+            for statement in (
+                "DELETE FROM fixed_assignments;", "DELETE FROM preferences;",
+                "DELETE FROM student_skills;", "DELETE FROM project_requirements;",
+                "DELETE FROM students;", "DELETE FROM projects;", "DELETE FROM skills;",
+            ):
+                conn.execute(statement)
+            conn.executemany(
+                "INSERT INTO skills (id, name, description) VALUES (?, ?, ?);",
+                [(skill.id, skill.name, skill.description) for skill in skills],
+            )
+            for project in projects:
+                conn.execute(
+                    "INSERT INTO projects (id, title, description, min_capacity, max_capacity) VALUES (?, ?, ?, ?, ?);",
+                    (project.id, project.title, project.description, project.min_capacity, project.max_capacity),
+                )
+                for requirement in project.requirements:
+                    conn.execute(
+                        "INSERT INTO project_requirements (project_id, skill_id, minimum_level, is_mandatory) VALUES (?, ?, ?, ?);",
+                        (project.id, requirement.skill_id, requirement.minimum_level, int(requirement.is_mandatory)),
+                    )
+            for student in students:
+                conn.execute("INSERT INTO students (id, display_name) VALUES (?, ?);", (student.id, student.display_name))
+                for skill_id, level in student.skills.items():
+                    conn.execute("INSERT INTO student_skills VALUES (?, ?, ?);", (student.id, skill_id, level))
+                for preference in student.preferences:
+                    conn.execute("INSERT INTO preferences VALUES (?, ?, ?);", (student.id, preference.project_id, preference.rank))
+            for fixed in fixed_assignments:
+                conn.execute(
+                    "INSERT INTO fixed_assignments (student_id, project_id, status, reason) VALUES (?, ?, ?, ?);",
+                    (fixed.student_id, fixed.project_id, fixed.status, fixed.reason),
+                )
+
+
 class SkillRepository:
     """Repository managing skill catalog records."""
 
@@ -260,7 +305,9 @@ class ProjectRepository:
                         project_id=p_id,
                         skill_id=r_row["skill_id"],
                         minimum_level=r_row["minimum_level"],
-                        is_mandatory=bool(r_row["is_mandatory"]),
+                        is_mandatory=database.read_boolean(
+                            r_row["is_mandatory"], f"Project '{p_id}', skill '{r_row['skill_id']}'"
+                        ),
                     )
                     for r_row in cur.fetchall()
                 ]
@@ -304,7 +351,9 @@ class ProjectRepository:
                     project_id=project_id,
                     skill_id=r_row["skill_id"],
                     minimum_level=r_row["minimum_level"],
-                    is_mandatory=bool(r_row["is_mandatory"]),
+                    is_mandatory=database.read_boolean(
+                        r_row["is_mandatory"], f"Project '{project_id}', skill '{r_row['skill_id']}'"
+                    ),
                 )
                 for r_row in cur.fetchall()
             ]

@@ -22,6 +22,7 @@ from app.domain import validation
 from app.engine import recommendations
 from app.engine import solvers
 from app.persistence import repositories
+from app.persistence import database
 from app.samples import demo_data
 from app.visualization import auth
 from app.visualization import forms
@@ -69,6 +70,11 @@ def dashboard() -> str:
     fixed_assignments = fixed_repo.list_all()
     runs = run_repo.list_runs(limit=10)
 
+    for project in projects:
+        if type(project.max_capacity) is not int:
+            raise database.InvalidDatabaseRecords([
+                f"Project '{project.id}': saved maximum capacity must be a whole number."
+            ])
     total_capacity = sum(p.max_capacity for p in projects)
     latest_run = runs[0] if runs else None
 
@@ -809,9 +815,6 @@ def scenarios_page() -> str:
 @web_bp.post("/load-scenario/<scenario_name>")
 def load_scenario(scenario_name: str) -> flask.Response:
     """Populates database with a designated reproducible benchmark cohort."""
-    repo_run = repositories.RunRepository()
-    repo_run.clear_all_cohort_data()
-
     if scenario_name == "standard":
         data = demo_data.get_standard_scenario()
     elif scenario_name == "fixed":
@@ -824,21 +827,19 @@ def load_scenario(scenario_name: str) -> flask.Response:
         flask.flash(f"Unknown scenario: '{scenario_name}'.", "warning")
         return flask.redirect(flask.url_for("visualization_web.scenarios_page"))
 
-    skill_repo = repositories.SkillRepository()
-    for s in data["skills"]:
-        skill_repo.save(s)
-
-    proj_repo = repositories.ProjectRepository()
-    for p in data["projects"]:
-        proj_repo.save(p)
-
-    stud_repo = repositories.StudentRepository()
-    for st in data["students"]:
-        stud_repo.save(st)
-
-    fixed_repo = repositories.FixedAssignmentRepository()
-    for fa in data.get("fixed_assignments", []):
-        fixed_repo.save(fa)
+    input_result = validation.validate_cohort(
+        data["students"], data["projects"], data["skills"], data.get("fixed_assignments", [])
+    )
+    structural_errors = [
+        error for error in input_result.errors if error not in input_result.infeasibility_reasons
+    ]
+    if structural_errors:
+        for error in structural_errors:
+            flask.flash(error, "danger")
+        return flask.redirect(flask.url_for("visualization_web.scenarios_page"))
+    repositories.CohortRepository().replace(
+        data["students"], data["projects"], data["skills"], data.get("fixed_assignments", [])
+    )
 
     flask.flash(
         f"Benchmark '{data['scenario_name']}' loaded successfully! "
@@ -861,9 +862,45 @@ def clear_data() -> flask.Response:
 # -----------------------------------------------------------------------------
 
 
+def _execute_validated_request(req: contract.RunRequest) -> models.AssignmentRun:
+    """Validates a Week 1 request before invoking the engine or explicit demo mock."""
+    engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
+    val_outcome = engine.validate_inputs(req)
+    for warning_msg in val_outcome.warnings:
+        flask.flash(f"Warning: {warning_msg}", "warning")
+    if not val_outcome.is_valid or not val_outcome.is_feasible:
+        structural_errors = [
+            error for error in val_outcome.errors if error not in val_outcome.infeasibility_reasons
+        ]
+        run = models.AssignmentRun(
+            id=str(uuid.uuid4()),
+            status="INVALID_INPUT" if structural_errors else "INFEASIBLE",
+            configuration={"primary_strategy": req.strategy_key, "max_alternatives": req.max_alternatives},
+            diagnostics={
+                "message": "Run rejected by input validation; no assignments were generated.",
+                "errors": list(val_outcome.errors), "warnings": list(val_outcome.warnings),
+                "reasons": list(val_outcome.infeasibility_reasons),
+            },
+        )
+        repositories.RunRepository().save_run(run)
+        return run
+    try:
+        run = engine.execute_run(req)
+    except NotImplementedError:
+        flask.flash(
+            "Notice: AssignmentEngine.execute_run() is not yet implemented by "
+            "Team B. Running with MockAssignmentEngine for demonstration.",
+            "info",
+        )
+        with database.db_manager.transaction() as transaction_db:
+            mock_engine = mocks.MockAssignmentEngine(repositories.RunRepository(transaction_db))
+            run = mock_engine.execute_run(req)
+    return run
+
+
 @web_bp.post("/runs/trigger")
 def trigger_run() -> flask.Response:
-    """Submits current cohort data to Service A to generate allocations."""
+    """Validates current inputs before an engine run or Week 1 mock demonstration."""
     if not auth.can_trigger_optimization():
         flask.flash("Permission denied for current role.", "danger")
         return flask.redirect(flask.url_for("visualization_web.dashboard"))
@@ -875,47 +912,15 @@ def trigger_run() -> flask.Response:
             flask.flash(error, "danger")
         return flask.redirect(flask.url_for("visualization_web.dashboard"))
     strat, max_alts = settings
-
-    students = repositories.StudentRepository().list_all()
-    projects = repositories.ProjectRepository().list_all()
-    skills = repositories.SkillRepository().list_all()
-    fixed = repositories.FixedAssignmentRepository().list_all()
-
-    engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
+    database.db_manager.check_input_integrity()
     req = contract.RunRequest(
-        students=students,
-        projects=projects,
-        skills=skills,
-        fixed_assignments=fixed,
-        strategy_key=strat,
-        max_alternatives=max_alts,
+        students=repositories.StudentRepository().list_all(),
+        projects=repositories.ProjectRepository().list_all(),
+        skills=repositories.SkillRepository().list_all(),
+        fixed_assignments=repositories.FixedAssignmentRepository().list_all(),
+        strategy_key=strat, max_alternatives=max_alts,
     )
-    val_outcome = engine.validate_inputs(req)
-    for warning_msg in val_outcome.warnings:
-        flask.flash(f"Warning: {warning_msg}", "warning")
-    if not val_outcome.is_valid or not val_outcome.is_feasible:
-        run = models.AssignmentRun(
-            id=str(uuid.uuid4()),
-            status="INFEASIBLE" if not val_outcome.is_feasible else "INVALID_INPUT",
-            configuration={"primary_strategy": strat, "max_alternatives": max_alts},
-            diagnostics={
-                "message": "Run rejected by input validation; no assignments were generated.",
-                "errors": list(val_outcome.errors), "warnings": list(val_outcome.warnings),
-                "reasons": list(val_outcome.infeasibility_reasons),
-            },
-        )
-        repositories.RunRepository().save_run(run)
-        return flask.redirect(flask.url_for("visualization_web.view_run", run_id=run.id))
-    try:
-        run = engine.execute_run(req)
-    except NotImplementedError:
-        flask.flash(
-            "Notice: AssignmentEngine.execute_run() is not yet implemented by "
-            "Team B. Running with MockAssignmentEngine for demonstration.",
-            "info",
-        )
-        mock_engine = mocks.MockAssignmentEngine()
-        run = mock_engine.execute_run(req)
+    run = _execute_validated_request(req)
 
     if run.status == "COMPLETED":
         flask.flash(
@@ -925,8 +930,7 @@ def trigger_run() -> flask.Response:
         )
     elif run.status == "INFEASIBLE":
         flask.flash(
-            "Solver could not find a feasible solution under the specified "
-            "hard constraints. Inspect diagnostics below.",
+            "The stated hard constraints cannot all be satisfied. Inspect diagnostics below.",
             "warning",
         )
     else:
@@ -979,6 +983,14 @@ def view_solution(solution_id: str) -> Any:
 @web_bp.post("/solutions/<solution_id>/lock-and-rerun")
 def lock_and_rerun(solution_id: str) -> flask.Response:
     """Locks a student assignment from a solution and triggers a new run."""
+    if not auth.can_edit_cohort_data() or not auth.can_trigger_optimization():
+        flask.flash("Permission denied for current role.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.dashboard"))
+    database.db_manager.check_input_integrity()
+    source = repositories.RunRepository().get_solution(solution_id)
+    if source is None:
+        flask.flash("Source solution not found; no lock was changed.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.dashboard"))
     student_id = flask.request.form.get("student_id")
     project_id = flask.request.form.get("project_id")
 
@@ -990,22 +1002,18 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
             )
         )
 
-    # Persist as fixed assignment
-    fixed_repo = repositories.FixedAssignmentRepository()
-    fixed_repo.save(
-        models.FixedAssignment(
-            student_id=student_id,
-            project_id=project_id,
-            status="APPROVED",
-            reason=f"Locked interactively from Solution {solution_id[:8]}.",
-        )
+    if not any(assignment.student_id == student_id and assignment.project_id == project_id for assignment in source.assignments):
+        flask.flash("That student/project pair is not in the source solution; no lock was changed.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.view_solution", solution_id=solution_id))
+    new_lock = models.FixedAssignment(
+        student_id, project_id, reason=f"Locked interactively from Solution {solution_id[:8]}."
     )
 
     # Immediately trigger rerun via Component B (Assignment Engine)
     students = repositories.StudentRepository().list_all()
     projects = repositories.ProjectRepository().list_all()
     skills = repositories.SkillRepository().list_all()
-    fixed = fixed_repo.list_all()
+    fixed = repositories.FixedAssignmentRepository().list_all() + [new_lock]
 
     engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
     req = contract.RunRequest(
@@ -1014,10 +1022,12 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
         skills=skills,
         fixed_assignments=fixed,
     )
-    try:
-        new_run = engine.execute_run(req)
-    except NotImplementedError:
-        new_run = mocks.MockAssignmentEngine().execute_run(req)
+    outcome = engine.validate_inputs(req)
+    if not outcome.is_valid or not outcome.is_feasible:
+        for error in outcome.errors:
+            flask.flash(error, "danger")
+        return flask.redirect(flask.url_for("visualization_web.view_solution", solution_id=solution_id))
+    new_run = _execute_validated_request(req)
 
     flask.flash(
         f"Student {student_id} locked to Project {project_id}. "

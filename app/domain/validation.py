@@ -278,12 +278,20 @@ def validate_fixed_assignments(
     student_ids: set[str],
     project_capacities: dict[str, int],
 ) -> ValidationResult:
-    """Checks locks against known IDs and validated maximum capacities.
+    """Checks locks against known IDs and positive integer maximum capacities.
 
     All supported statuses denote active locks, matching the existing form.
     Duplicate or conflicting rows are rejected before capacity is counted.
     """
     result = ValidationResult()
+    for project_id, capacity in project_capacities.items():
+        if type(capacity) is not int or capacity < 1:
+            result.errors.append(
+                f"Project '{project_id}': maximum capacity must be a positive whole number."
+            )
+    if result.errors:
+        result.is_valid = False
+        return result
     student_projects: dict[str, str] = {}
     project_counts: dict[str, int] = {}
     for index, fixed in enumerate(fixed_assignments, start=1):

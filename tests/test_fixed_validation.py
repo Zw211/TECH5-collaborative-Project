@@ -99,3 +99,14 @@ def test_contract_rejects_bad_lock_status() -> None:
 
     assert result.is_valid is False
     assert any("unsupported status" in error for error in result.errors)
+
+
+@pytest.mark.parametrize("capacity", [None, "1", 1.5, 0, True])
+def test_focused_lock_validation_rejects_bad_saved_capacity(capacity: object) -> None:
+    result = validation.validate_fixed_assignments(
+        [models.FixedAssignment("S1", "P1")], {"S1"}, {"P1": capacity}  # type: ignore[dict-item]
+    )
+
+    assert result.is_valid is False
+    assert any("P1" in error and "capacity" in error for error in result.errors)
+    assert result.infeasibility_reasons == []
