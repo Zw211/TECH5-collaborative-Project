@@ -10,6 +10,7 @@ import dataclasses
 import io
 import re
 import sqlite3
+import uuid
 from typing import Any
 
 import flask
@@ -867,8 +868,13 @@ def trigger_run() -> flask.Response:
         flask.flash("Permission denied for current role.", "danger")
         return flask.redirect(flask.url_for("visualization_web.dashboard"))
 
-    max_alts = int(flask.request.form.get("max_alternatives", 3))
-    strat = flask.request.form.get("primary_strategy", "PREFERENCE")
+    settings_form = forms.RunSettingsForm(flask.request.form)
+    settings = settings_form.to_settings()
+    if settings is None:
+        for error in settings_form.errors:
+            flask.flash(error, "danger")
+        return flask.redirect(flask.url_for("visualization_web.dashboard"))
+    strat, max_alts = settings
 
     students = repositories.StudentRepository().list_all()
     projects = repositories.ProjectRepository().list_all()
@@ -887,6 +893,19 @@ def trigger_run() -> flask.Response:
     val_outcome = engine.validate_inputs(req)
     for warning_msg in val_outcome.warnings:
         flask.flash(f"Warning: {warning_msg}", "warning")
+    if not val_outcome.is_valid or not val_outcome.is_feasible:
+        run = models.AssignmentRun(
+            id=str(uuid.uuid4()),
+            status="INFEASIBLE" if not val_outcome.is_feasible else "INVALID_INPUT",
+            configuration={"primary_strategy": strat, "max_alternatives": max_alts},
+            diagnostics={
+                "message": "Run rejected by input validation; no assignments were generated.",
+                "errors": list(val_outcome.errors), "warnings": list(val_outcome.warnings),
+                "reasons": list(val_outcome.infeasibility_reasons),
+            },
+        )
+        repositories.RunRepository().save_run(run)
+        return flask.redirect(flask.url_for("visualization_web.view_run", run_id=run.id))
     try:
         run = engine.execute_run(req)
     except NotImplementedError:

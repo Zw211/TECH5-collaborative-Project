@@ -185,8 +185,15 @@ means no tested contradiction was found; it does not prove feasibility.
 
 ## Run settings
 
-- [ ] RUN-01 **Unknown assignment strategy** - reject an unsupported strategy with a clear message rather than silently choosing another one.
-- [ ] RUN-02 **Invalid number of requested alternatives** - reject missing or non-positive values and values that are not whole numbers. Document any supported upper limit rather than inventing one silently.
+- [x] RUN-01 **Unknown strategy** - accept the dashboard names `PREFERENCE`, `SKILL_FIT`, and `BALANCED`; reject other names and non-text values. Recognising a name does not implement or approve its solver.
+- [x] RUN-02 **Invalid alternative count** - accept integers 1 to 4, matching the existing dashboard choices. Reject missing, non-integer, boolean, non-finite, or out-of-range values. The contract default remains 3; a submitted form must provide its count.
+
+Evidence: `tests/test_run_validation.py` (36 examples),
+`test_invalid_run_settings_do_not_start_a_mock_run` (5 examples), and
+`test_invalid_cohort_is_recorded_without_mock_solutions`. `RunSettingsForm`
+parses text before shared domain checks. Rejected settings start no run;
+rejected cohorts record diagnostics and zero solutions. Existing valid mock
+and infeasible-cohort integration workflows still pass.
 
 ## Assignment output and comparisons
 
@@ -218,13 +225,13 @@ real optimization method works.
 
 ## Verification and next steps
 
-On 2026-10-20, the input-validation focused checks returned **232 passed**:
+On 2026-10-20, the run-settings/interface focused checks returned **121 passed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_feasibility_validation.py tests/test_fixed_validation.py tests/test_skill_validation.py tests/test_validation.py tests/test_identifier_validation.py tests/test_preference_validation.py -q --tb=short -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/test_run_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_component_integration.py -q --tb=short -p no:cacheprovider
 ```
 
-Full suite: **369 passed, 12 xfailed, 4 failed**:
+Full suite: **411 passed, 12 xfailed, 4 failed**:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
@@ -235,7 +242,7 @@ The four failures are the existing CAP-04 real-engine boundary tests;
 still does not meet the passing-suite requirement for merging. Database
 checks ran with access to pytest's separate temporary databases.
 
-Next: run settings and database input checks. Shared form
+Next: database input checks and the Week 1 handoff for deferred output cases. Shared form
 changes need the normal cross-team PR review. No contract, model, schema,
 or solver method changed. General scoring remains unfinished; only the
 documented no-requirement skill-fit case is implemented.
@@ -253,3 +260,5 @@ was committed and pushed as `b8f3775`; subgroup commits record their test result
 Fixed checks were committed and pushed as `716d52a`. Feasibility work added
 12 input examples and records the user's confirmed coverage rule; no solver
 or assignment method has been implemented or claimed approved.
+Feasibility input checks were pushed as `e8ad14c`. Run settings added 36
+domain/form and 6 web examples, with validation now enforced before a mock run.

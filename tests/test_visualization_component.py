@@ -331,6 +331,36 @@ def test_invalid_lock_form_preserves_existing_lock(
     assert repositories.FixedAssignmentRepository().list_all() == [original]
 
 
+@pytest.mark.parametrize(
+    "settings", [{}, {"max_alternatives": "bad"}, {"max_alternatives": "0"},
+                 {"max_alternatives": "5"}, {"max_alternatives": "2", "primary_strategy": "UNKNOWN"}],
+)
+def test_invalid_run_settings_do_not_start_a_mock_run(tmp_path: pathlib.Path, settings: dict[str, str]) -> None:
+    client = _make_client(tmp_path, "test_run_settings")
+    client.post("/load-scenario/standard")
+
+    response = client.post("/runs/trigger", data=settings, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b"Optimization run completed" not in response.data
+    assert repositories.RunRepository().list_runs() == []
+
+
+def test_invalid_cohort_is_recorded_without_mock_solutions(tmp_path: pathlib.Path) -> None:
+    client = _make_client(tmp_path, "test_rejected_cohort")
+    repositories.ProjectRepository().save(models.Project("P1", "Project 1"))
+
+    response = client.post("/runs/trigger", data={"max_alternatives": "2"}, follow_redirects=True)
+
+    assert response.status_code == 200
+    runs = repositories.RunRepository().list_runs()
+    assert len(runs) == 1
+    assert runs[0].status == "INVALID_INPUT"
+    assert runs[0].solutions == []
+    assert "Student cohort cannot be empty." in runs[0].diagnostics["errors"]
+    assert b"MockAssignmentEngine for demonstration" not in response.data
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(

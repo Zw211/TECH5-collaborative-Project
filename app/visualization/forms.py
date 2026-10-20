@@ -7,6 +7,29 @@ can be unit tested without a web request or a database.
 from collections.abc import Iterable, Mapping
 
 from app.domain import models
+from app.domain import validation
+
+
+class RunSettingsForm:
+    """Parses dashboard settings and reuses the engine's validation rules."""
+
+    def __init__(self, form: Mapping[str, str]) -> None:
+        self._form = form
+        self.errors: list[str] = []
+
+    def to_settings(self) -> tuple[str, int] | None:
+        """Returns (strategy, count), or None with messages for invalid fields."""
+        strategy = self._form.get("primary_strategy", "PREFERENCE")
+        raw_count = self._form.get("max_alternatives", "").strip()
+        try:
+            count = int(raw_count)
+        except ValueError:
+            count = None
+        result = validation.validate_run_settings(strategy, count)
+        self.errors = result.errors
+        if self.errors or count is None:
+            return None
+        return strategy, count
 
 
 class StudentSkillsForm:

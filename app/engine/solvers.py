@@ -127,6 +127,10 @@ class AssignmentEngine(contract.AssignmentEngineContract):
             skills=request.skills,
             fixed_assignments=request.fixed_assignments,
         )
+        settings_result = validation.validate_run_settings(request.strategy_key, request.max_alternatives)
+        val_result.errors.extend(settings_result.errors)
+        if not settings_result.is_valid:
+            val_result.is_valid = False
         return contract.ValidationOutcome(
             is_valid=val_result.is_valid,
             is_feasible=val_result.is_feasible,

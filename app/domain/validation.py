@@ -12,6 +12,8 @@ from app.domain import models
 
 
 FIXED_ASSIGNMENT_STATUSES = ("APPROVED", "MANDATORY", "CONDITIONAL")
+RUN_STRATEGIES = ("PREFERENCE", "SKILL_FIT", "BALANCED")
+MAX_ALTERNATIVES = 4
 
 
 @dataclasses.dataclass
@@ -402,6 +404,22 @@ def _check_mandatory_feasibility(
         result.errors.append(message)
         result.infeasibility_reasons.append(message)
         result.is_feasible = False
+
+
+def validate_run_settings(strategy_key: object, max_alternatives: object) -> ValidationResult:
+    """Checks the names and 1-to-4 count supported by the current dashboard.
+
+    Recognising a strategy name does not implement or approve its solver.
+    """
+    result = ValidationResult()
+    if not isinstance(strategy_key, str) or strategy_key not in RUN_STRATEGIES:
+        result.errors.append(
+            "Unknown assignment strategy. Use PREFERENCE, SKILL_FIT, or BALANCED."
+        )
+    if type(max_alternatives) is not int or not 1 <= max_alternatives <= MAX_ALTERNATIVES:
+        result.errors.append("Requested alternatives must be a whole number from 1 to 4.")
+    result.is_valid = not result.errors
+    return result
 
 
 def validate_cohort(
