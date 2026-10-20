@@ -6,6 +6,7 @@ triggering, multi-solution visual comparisons, and recommendations.
 
 import collections
 import csv
+import dataclasses
 import io
 import re
 import sqlite3
@@ -26,6 +27,7 @@ from app.visualization import forms
 web_bp = flask.Blueprint("visualization_web", __name__)
 
 _SKILL_ID_PATTERN = re.compile(r"[a-z0-9_]+")
+_COMPARE_RUN_LIMIT = 20
 
 
 @web_bp.app_context_processor
@@ -1004,15 +1006,278 @@ def clear_solutions() -> flask.Response:
 # -----------------------------------------------------------------------------
 
 
-@web_bp.get("/compare")
-def compare_solutions() -> Any:
-    """Renders side-by-side comparative analysis of two solutions.
+def _solution_option(
+    solution: models.Solution, created_at: str = ""
+) -> dict[str, Any]:
+    """Builds a label-ready dropdown entry for a solution.
+
+    Args:
+        solution: Solution to describe (assignments are not needed).
+        created_at: ISO timestamp of the parent run, if known.
+
+    Returns:
+        A dict with the keys "id", "run_id", "alternative_number" and
+        "label".
+    """
+    run_part = f"Run {solution.run_id[:8]}"
+    if created_at:
+        run_part += f", {created_at[:16].replace('T', ' ')}"
+    return {
+        "id": solution.id,
+        "run_id": solution.run_id,
+        "alternative_number": solution.alternative_number,
+        "label": (
+            f"Alt #{solution.alternative_number} - "
+            f"{solution.strategy_name} ({run_part})"
+        ),
+    }
+
+
+def _build_solution_options(
+    runs: list[models.AssignmentRun],
+) -> list[dict[str, Any]]:
+    """Flattens runs into dropdown entries, keeping the order of the runs.
+
+    Args:
+        runs: Runs ordered newest first, as returned by the repository.
+
+    Returns:
+        One entry per solution, newest run first and by alternative number
+        within a run.
+    """
+    return [
+        _solution_option(sol, run.created_at)
+        for run in runs
+        for sol in run.solutions
+    ]
+
+
+def _pick_default_partner(
+    solution_id: str, options: list[dict[str, Any]]
+) -> str | None:
+    """Picks another alternative of the same run to compare against.
+
+    Args:
+        solution_id: Identifier of the already chosen solution.
+        options: Dropdown entries as built by _build_solution_options().
+
+    Returns:
+        The ID of the next alternative of the same run (or the first other
+        one if it is the last), or None if there is no other alternative.
+    """
+    chosen = next((o for o in options if o["id"] == solution_id), None)
+    if chosen is None:
+        return None
+    siblings = [
+        o
+        for o in options
+        if o["run_id"] == chosen["run_id"] and o["id"] != solution_id
+    ]
+    later = [
+        o
+        for o in siblings
+        if o["alternative_number"] > chosen["alternative_number"]
+    ]
+    candidates = later or siblings
+    return candidates[0]["id"] if candidates else None
+
+
+def _ensure_run_options(
+    solution_id: str,
+    options: list[dict[str, Any]],
+    run_repo: repositories.RunRepository,
+) -> None:
+    """Appends the run of a solution to the options if it is missing.
+
+    This keeps links to solutions older than the dropdown window working.
+
+    Args:
+        solution_id: Requested solution identifier (may be empty/unknown).
+        options: Dropdown entries, extended in place.
+        run_repo: Repository used to look up the solution and its run.
+    """
+    if not solution_id or any(o["id"] == solution_id for o in options):
+        return
+    solution = run_repo.get_solution(solution_id)
+    if solution is None:
+        return
+    run = run_repo.get_run(solution.run_id)
+    if run is not None:
+        options.extend(
+            _solution_option(s, run.created_at) for s in run.solutions
+        )
+
+
+def _rank_label(rank: int | None) -> str:
+    """Formats a preference rank for display.
+
+    Args:
+        rank: Preference rank, or None for an unranked assignment.
+
+    Returns:
+        "Unranked" or "Choice #<rank>".
+    """
+    return "Unranked" if rank is None else f"Choice #{rank}"
+
+
+def _describe_rank_shift(
+    rank_a: int | None, rank_b: int | None
+) -> tuple[str, str]:
+    """Describes how a student's preference rank changed between solutions.
+
+    Args:
+        rank_a: Rank in solution A (None if unranked).
+        rank_b: Rank in solution B (None if unranked).
+
+    Returns:
+        A tuple of (text, badge_suffix) where badge_suffix is one of
+        "success", "danger" or "secondary".
+    """
+    if rank_a is None and rank_b is None:
+        return "Both unranked", "secondary"
+    if rank_a is None:
+        return "Ranked in B (was unranked)", "success"
+    if rank_b is None:
+        return "Unranked in B", "danger"
+    delta = rank_b - rank_a
+    steps = f"{abs(delta)} rank{'' if abs(delta) == 1 else 's'}"
+    if delta < 0:
+        return f"\u25b2 {steps} better", "success"
+    if delta > 0:
+        return f"\u25bc {steps} worse", "danger"
+    return "Lateral move", "secondary"
+
+
+def _enrich_changed_assignments(
+    changed: list[dict[str, Any]],
+    students: dict[str, models.Student],
+    projects: dict[str, models.Project],
+) -> list[dict[str, Any]]:
+    """Adds display names, titles and rank labels to changed assignments.
+
+    The engine's dictionaries are copied, never modified.
+
+    Args:
+        changed: The changed_assignments of a RunComparison.
+        students: Map of student ID to Student.
+        projects: Map of project ID to Project.
+
+    Returns:
+        New dicts with real student names and project titles (falling back
+        to the IDs), "rank_a_label"/"rank_b_label", and "shift_text" /
+        "shift_class" describing the rank shift.
+    """
+    enriched: list[dict[str, Any]] = []
+    for item in changed:
+        row = dict(item)
+        student_id = item.get("student_id", "")
+        student = students.get(student_id)
+        row["student_name"] = student.display_name if student else student_id
+        for side in ("a", "b"):
+            project_id = item.get(f"project_{side}_id", "")
+            project = projects.get(project_id)
+            row[f"project_{side}_title"] = (
+                project.title if project else project_id
+            )
+            row[f"rank_{side}_label"] = _rank_label(item.get(f"rank_{side}"))
+        row["shift_text"], row["shift_class"] = _describe_rank_shift(
+            item.get("rank_a"), item.get("rank_b")
+        )
+        enriched.append(row)
+    return enriched
+
+
+def _compare_via_contract(
+    solution_a_id: str, solution_b_id: str
+) -> models.RunComparison:
+    """Compares two solutions via the engine, falling back to the mock.
+
+    Args:
+        solution_a_id: Identifier of the baseline solution.
+        solution_b_id: Identifier of the comparison solution.
+
+    Returns:
+        The RunComparison produced by the engine or the mock engine.
 
     Raises:
-        NotImplementedError: To be implemented by Team A.
+        KeyError: If either solution cannot be found.
     """
-    raise NotImplementedError(
-        "TODO (Team A): Implement side-by-side solution comparison controller"
+    engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
+    try:
+        return engine.compare_solutions(solution_a_id, solution_b_id)
+    except NotImplementedError:
+        return mocks.MockAssignmentEngine().compare_solutions(
+            solution_a_id, solution_b_id
+        )
+
+
+@web_bp.get("/compare")
+def compare_solutions() -> Any:
+    """Renders side-by-side comparative analysis of two solutions."""
+    run_repo = repositories.RunRepository()
+    options = _build_solution_options(
+        run_repo.list_runs(limit=_COMPARE_RUN_LIMIT)
+    )
+    sol1 = flask.request.args.get("sol1", "").strip()
+    sol2 = flask.request.args.get("sol2", "").strip()
+    _ensure_run_options(sol1, options, run_repo)
+    _ensure_run_options(sol2, options, run_repo)
+
+    if sol1 and not sol2:
+        sol2 = _pick_default_partner(sol1, options) or ""
+        if not sol2 and any(o["id"] == sol1 for o in options):
+            flask.flash(
+                "This run has only one alternative, so there is nothing "
+                "to compare it with.",
+                "info",
+            )
+    elif sol2 and not sol1:
+        flask.flash("Select a baseline solution (A) to compare with.", "info")
+
+    by_id = {o["id"]: o for o in options}
+    comparison: models.RunComparison | None = None
+    if sol1 and sol2:
+        try:
+            comparison = _compare_via_contract(sol1, sol2)
+        except KeyError as exc:
+            reason = exc.args[0] if exc.args else "unknown solution"
+            flask.flash(f"Cannot compare: {reason}", "danger")
+        else:
+            students = {
+                s.id: s for s in repositories.StudentRepository().list_all()
+            }
+            projects = {
+                p.id: p for p in repositories.ProjectRepository().list_all()
+            }
+            comparison = dataclasses.replace(
+                comparison,
+                changed_assignments=_enrich_changed_assignments(
+                    comparison.changed_assignments, students, projects
+                ),
+            )
+            if sol1 == sol2:
+                flask.flash(
+                    "Solutions A and B are identical, so no allocation "
+                    "differs.",
+                    "info",
+                )
+            elif (
+                sol1 in by_id
+                and sol2 in by_id
+                and by_id[sol1]["run_id"] != by_id[sol2]["run_id"]
+            ):
+                flask.flash(
+                    "These solutions come from different runs; their inputs "
+                    "may differ, so deltas are not like-for-like.",
+                    "warning",
+                )
+
+    return flask.render_template(
+        "compare.html",
+        all_solutions=options,
+        sol_a=by_id.get(sol1),
+        sol_b=by_id.get(sol2),
+        comparison=comparison,
     )
 
 
