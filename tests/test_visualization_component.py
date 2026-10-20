@@ -241,6 +241,69 @@ def test_repeated_preference_is_not_silently_saved(
         assert saved.preferences == [models.Preference("S1", "P2", 1)]
 
 
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize(("field", "value"), [("skill_py", "6"), ("skill_py", "bad"), ("skill_ghost", "3")])
+def test_bad_student_skills_leave_saved_records_unchanged(
+    tmp_path: pathlib.Path, operation: str, field: str, value: str
+) -> None:
+    """SKILL-02/04: Invalid posted skills cannot be discarded or saved."""
+    client = _make_client(tmp_path, "test_bad_student_skills")
+    repositories.SkillRepository().save(models.Skill("py", "Python"))
+    student_repo = repositories.StudentRepository()
+    path = "/students/new"
+    if operation == "update":
+        student_repo.save(models.Student("S1", "Original", skills={"py": 2}))
+        path = "/students/S1/edit"
+
+    response = client.post(
+        path, data={"id": "S1", "display_name": "Changed", field: value},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"created successfully" not in response.data
+    saved = student_repo.get_by_id("S1")
+    if operation == "create":
+        assert saved is None
+    else:
+        assert saved is not None
+        assert saved.display_name == "Original"
+        assert saved.skills == {"py": 2}
+    assert b"unknown skill" in response.data or b"level" in response.data
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize(("field", "value"), [("req_mand_py", "false"), ("req_level_ghost", "2")])
+def test_bad_project_skill_fields_leave_saved_records_unchanged(
+    tmp_path: pathlib.Path, operation: str, field: str, value: str
+) -> None:
+    """SKILL-04/08: Unknown skills and unsupported flags must be corrected."""
+    client = _make_client(tmp_path, "test_bad_project_skills")
+    repositories.SkillRepository().save(models.Skill("py", "Python"))
+    project_repo = repositories.ProjectRepository()
+    path = "/projects/new"
+    original_requirements = [models.ProjectRequirement("P1", "py", 2, False)]
+    if operation == "update":
+        project_repo.save(models.Project("P1", "Original", requirements=original_requirements))
+        path = "/projects/P1/edit"
+    data = {
+        "id": "P1", "title": "Changed", "min_capacity": "0", "max_capacity": "2",
+        "req_level_py": "2", field: value,
+    }
+
+    response = client.post(path, data=data, follow_redirects=True)
+
+    assert response.status_code == 200
+    saved = project_repo.get_by_id("P1")
+    if operation == "create":
+        assert saved is None
+    else:
+        assert saved is not None
+        assert saved.title == "Original"
+        assert saved.requirements == original_requirements
+    assert b"unknown skill" in response.data or b"Mandatory flag" in response.data
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(

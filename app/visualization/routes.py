@@ -220,19 +220,14 @@ def create_student() -> flask.Response:
             flask.url_for("visualization_web.new_student_form")
         )
 
-    # Parse skills
-    skills_dict: dict[str, int] = {}
-    valid_skills = {s.id for s in repositories.SkillRepository().list_all()}
-    for key, val in flask.request.form.items():
-        if key.startswith("skill_") and val:
-            skill_id = key.replace("skill_", "")
-            if skill_id in valid_skills:
-                try:
-                    lvl = int(val)
-                    if lvl > 0:
-                        skills_dict[skill_id] = lvl
-                except ValueError:
-                    pass
+    skill_form = forms.StudentSkillsForm(
+        flask.request.form, [skill.id for skill in repositories.SkillRepository().list_all()]
+    )
+    skills_dict = skill_form.to_skills()
+    if skills_dict is None:
+        for error in skill_form.errors:
+            flask.flash(error, "danger")
+        return flask.redirect(flask.url_for("visualization_web.new_student_form"))
 
     # Parse and validate preferences against catalog
     available_projects = {
@@ -308,18 +303,16 @@ def update_student(student_id: str) -> flask.Response:
         flask.request.form.get("display_name", "").strip() or student_id
     )
 
-    valid_skills = {s.id for s in repositories.SkillRepository().list_all()}
-    skills_dict: dict[str, int] = {}
-    for key, val in flask.request.form.items():
-        if key.startswith("skill_") and val:
-            skill_id = key.replace("skill_", "")
-            if skill_id in valid_skills:
-                try:
-                    lvl = int(val)
-                    if lvl > 0:
-                        skills_dict[skill_id] = lvl
-                except ValueError:
-                    pass
+    skill_form = forms.StudentSkillsForm(
+        flask.request.form, [skill.id for skill in repositories.SkillRepository().list_all()]
+    )
+    skills_dict = skill_form.to_skills()
+    if skills_dict is None:
+        for error in skill_form.errors:
+            flask.flash(error, "danger")
+        return flask.redirect(
+            flask.url_for("visualization_web.edit_student_form", student_id=student_id)
+        )
 
     # Parse and validate preferences against catalog
     available_projects = {

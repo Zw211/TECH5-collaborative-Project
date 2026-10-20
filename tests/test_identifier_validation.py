@@ -279,13 +279,13 @@ def test_unmatched_reference_case_is_explained_without_changing_ids() -> None:
     )
 
     assert result.is_valid is False
-    assert len(result.errors) == 3
+    assert len(result.errors) == 5
     assert all("case-sensitive" in error for error in result.errors)
-    skill_warnings = [
-        warning for warning in result.warnings if "uncatalogued skill" in warning
+    skill_errors = [
+        error for error in result.errors if "unknown skill" in error
     ]
-    assert len(skill_warnings) == 2
-    assert all("case-sensitive" in warning for warning in skill_warnings)
+    assert len(skill_errors) == 2
+    assert all("case-sensitive" in error for error in skill_errors)
     assert student.preferences[0].project_id == "p1"
     assert fixed.student_id == "s1"
     assert student.skills == {"PY": 3}

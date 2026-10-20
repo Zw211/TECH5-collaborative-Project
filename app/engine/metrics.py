@@ -29,10 +29,14 @@ def calculate_assignment_skill_fit(
 
     Returns:
         A tuple of (skill_fit_score [0.0, 1.0], list_of_unmet_skill_ids).
+        Projects with no requirements have score 1.0 and no unmet skills.
 
     Raises:
-        NotImplementedError: To be implemented by Team B.
+        NotImplementedError: Scoring nonempty requirements is still unfinished.
     """
+    if not project.requirements:
+        return 1.0, []
+
     raise NotImplementedError(
         "TODO (Team B): Implement calculate_assignment_skill_fit"
     )

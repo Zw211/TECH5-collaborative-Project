@@ -9,6 +9,45 @@ from collections.abc import Iterable, Mapping
 from app.domain import models
 
 
+class StudentSkillsForm:
+    """Parses student skill fields and collects errors before a student is saved."""
+
+    def __init__(self, form: Mapping[str, str], skill_ids: Iterable[str]) -> None:
+        self._form = form
+        self._skill_ids = set(skill_ids)
+        self.errors: list[str] = []
+
+    def to_skills(self) -> dict[str, int] | None:
+        """Returns parsed skills, or None on errors; blank/zero means omitted."""
+        self.errors = []
+        skills: dict[str, int] = {}
+        for field, value in self._form.items():
+            if not field.startswith("skill_"):
+                continue
+            skill_id = field[len("skill_"):]
+            if skill_id not in self._skill_ids:
+                self.errors.append(f"Student profile references unknown skill '{skill_id}'.")
+                continue
+            raw = value.strip()
+            if not raw:
+                continue
+            try:
+                level = int(raw)
+            except ValueError:
+                self.errors.append(f"Skill '{skill_id}': level must be a whole number.")
+                continue
+            if level == 0:
+                continue
+            if not 1 <= level <= 5:
+                self.errors.append(f"Skill '{skill_id}': level must be between 1 and 5.")
+                continue
+            skills[skill_id] = level
+
+        if self.errors:
+            return None
+        return skills
+
+
 class ProjectForm:
     """Parses and validates the project creation and edit form.
 
@@ -125,9 +164,29 @@ class ProjectForm:
             One requirement per skill with a level from 1 to 5.
         """
         requirements: list[models.ProjectRequirement] = []
+        unknown_skill_ids: set[str] = set()
+        for field in self._form:
+            if field.startswith("req_level_"):
+                skill_id = field[len("req_level_"):]
+            elif field.startswith("req_mand_"):
+                skill_id = field[len("req_mand_"):]
+            else:
+                continue
+            if skill_id not in self._skill_ids:
+                unknown_skill_ids.add(skill_id)
+        for skill_id in sorted(unknown_skill_ids):
+            self.errors.append(f"Project requirement references unknown skill '{skill_id}'.")
+
         for skill_id in self._skill_ids:
             raw = self._field(f"req_level_{skill_id}").strip() or "0"
-            is_mandatory = bool(self._field(f"req_mand_{skill_id}"))
+            raw_mandatory = self._field(f"req_mand_{skill_id}").strip()
+            if raw_mandatory not in ("", "1", "on"):
+                self.errors.append(
+                    f"Mandatory flag for skill '{skill_id}' must be an unchecked "
+                    "or checked box (empty, '1', or 'on')."
+                )
+                continue
+            is_mandatory = raw_mandatory in ("1", "on")
             try:
                 level = int(raw)
             except ValueError:

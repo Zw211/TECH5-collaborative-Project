@@ -62,12 +62,15 @@ def test_edit_uses_url_identifier() -> None:
     assert form.to_project().id == "P1"
 
 
-def test_skills_outside_catalog_are_ignored() -> None:
-    """Verifies requirement fields for unknown skills are not parsed."""
-    project = forms.ProjectForm(
-        _form(req_level_r="5"), SKILLS
-    ).to_project()
-    assert {r.skill_id for r in project.requirements} == {"py"}
+@pytest.mark.parametrize("field", ["req_level_r", "req_mand_r"])
+def test_skills_outside_catalog_are_rejected(field: str) -> None:
+    """SKILL-04: Unknown requirement fields must not be silently discarded."""
+    data = _form()
+    data[field] = "1"
+    form = forms.ProjectForm(data, SKILLS)
+
+    assert form.to_project() is None
+    assert any("unknown skill 'r'" in error for error in form.errors)
 
 
 @pytest.mark.parametrize(
@@ -105,3 +108,64 @@ def test_all_errors_are_reported_together() -> None:
 
     assert form.to_project() is None
     assert len(form.errors) == 3
+
+
+@pytest.mark.parametrize("flag", ["false", "true", "0", "2", "yes", "off"])
+def test_project_form_rejects_unsupported_mandatory_flags(flag: str) -> None:
+    """SKILL-08: Nonempty text must not automatically become a checked box."""
+    form = forms.ProjectForm(_form(req_mand_py=flag), SKILLS)
+
+    assert form.to_project() is None
+    assert any("Mandatory flag" in error and "py" in error for error in form.errors)
+
+
+@pytest.mark.parametrize(("flag", "expected"), [("1", True), ("on", True), ("", False)])
+def test_project_form_parses_supported_checkbox_values(flag: str, expected: bool) -> None:
+    """SKILL-08: Checked encodings become True; an unchecked box becomes False."""
+    form = forms.ProjectForm(_form(req_mand_py=flag), SKILLS)
+
+    project = form.to_project()
+
+    assert project is not None
+    assert project.requirements[0].is_mandatory is expected
+
+
+@pytest.mark.parametrize("level", ["-1", "6", "1.5", "2.0", "bad", "true", "inf"])
+def test_student_skill_form_rejects_invalid_levels(level: str) -> None:
+    """SKILL-02: Form text must parse to a whole number between 1 and 5."""
+    form = forms.StudentSkillsForm({"skill_py": level}, SKILLS)
+
+    assert form.to_skills() is None
+    assert any("py" in error for error in form.errors)
+
+
+@pytest.mark.parametrize("omitted_level", ["0", "", " \t"])
+def test_student_skill_form_omits_zero_or_blank_levels(omitted_level: str) -> None:
+    """SKILL-01/02: Zero and blank form values mean no recorded skill."""
+    form = forms.StudentSkillsForm(
+        {"skill_py": " 5 ", "skill_sql": omitted_level, "id": "S1"}, SKILLS
+    )
+
+    assert form.to_skills() == {"py": 5}
+    assert form.errors == []
+
+
+def test_student_skill_form_rejects_unknown_skill() -> None:
+    """SKILL-04: Skill fields must use an exact catalogue ID."""
+    form = forms.StudentSkillsForm({"skill_ghost": "3"}, SKILLS)
+
+    assert form.to_skills() is None
+    assert any("unknown skill 'ghost'" in error for error in form.errors)
+
+
+def test_student_skill_form_collects_errors_and_can_be_rechecked() -> None:
+    """Return all form errors, then clear them when the user corrects the data."""
+    data = {"skill_py": "bad", "skill_sql": "6"}
+    form = forms.StudentSkillsForm(data, SKILLS)
+
+    assert form.to_skills() is None
+    assert len(form.errors) == 2
+
+    data.update(skill_py="1", skill_sql="5")
+    assert form.to_skills() == {"py": 1, "sql": 5}
+    assert form.errors == []

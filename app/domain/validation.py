@@ -214,6 +214,64 @@ def _validate_preferences(
             )
 
 
+def _validate_skill_level(level: object, field: str, errors: list[str]) -> None:
+    """Checks stored proficiency before comparisons; booleans are not levels."""
+    if type(level) is not int or not 1 <= level <= 5:
+        errors.append(f"{field}: level must be a whole number from 1 to 5.")
+
+
+def _validate_skill_data(
+    students: list[models.Student],
+    projects: list[models.Project],
+    skills: list[models.Skill] | None,
+    result: ValidationResult,
+) -> bool:
+    """Checks skill data and returns whether mandatory matching can safely use it."""
+    errors_before = len(result.errors)
+    defined_skill_ids = None if skills is None else {skill.id for skill in skills}
+    has_skill_references = (
+        any(student.skills for student in students)
+        or any(project.requirements for project in projects)
+    )
+    if skills is None and has_skill_references:
+        result.warnings.append(
+            "The skill catalogue was omitted; skill references could not be "
+            "checked against it. Supply a catalogue to verify the skill IDs."
+        )
+
+    for student in students:
+        for skill_id, level in student.skills.items():
+            field = f"Student '{student.id}', skill '{skill_id}'"
+            _validate_skill_level(level, field, result.errors)
+            if defined_skill_ids is not None and skill_id not in defined_skill_ids:
+                result.errors.append(
+                    f"Student '{student.id}' lists unknown skill '{skill_id}'. "
+                    "Skill IDs are case-sensitive; use an exact catalog ID."
+                )
+
+    for project in projects:
+        seen_skills: set[str] = set()
+        for requirement in project.requirements:
+            skill_id = requirement.skill_id
+            field = f"Project '{project.id}', skill '{skill_id}'"
+            _validate_skill_level(requirement.minimum_level, field, result.errors)
+            if type(requirement.is_mandatory) is not bool:
+                result.errors.append(f"{field}: mandatory flag must be True or False.")
+            if skill_id in seen_skills:
+                result.errors.append(
+                    f"Project '{project.id}' lists requirement skill '{skill_id}' "
+                    "more than once. Correct the duplicate requirements."
+                )
+            seen_skills.add(skill_id)
+            if defined_skill_ids is not None and skill_id not in defined_skill_ids:
+                result.errors.append(
+                    f"Project '{project.id}' demands unknown skill '{skill_id}'. "
+                    "Skill IDs are case-sensitive; use an exact catalog ID."
+                )
+
+    return len(result.errors) == errors_before
+
+
 def validate_cohort(
     students: list[models.Student],
     projects: list[models.Project],
@@ -238,6 +296,9 @@ def validate_cohort(
         Non-integer capacities are rejected before capacity calculations.
         Short preference lists warn; duplicate projects, tied or invalid ranks,
         rank gaps, and unknown projects are rejected.
+        Skill levels must be integers from 1 to 5 and mandatory flags booleans.
+        Supplied skill catalogues enforce references, including empty catalogues.
+        An omitted catalogue warns when references cannot be checked against it.
     """
     result = ValidationResult()
 
@@ -280,6 +341,8 @@ def validate_cohort(
         result.is_valid = False
         return result
 
+    skill_data_is_valid = _validate_skill_data(students, projects, skills, result)
+
     total_min_capacity = 0
     total_max_capacity = 0
     for project in projects:
@@ -303,8 +366,6 @@ def validate_cohort(
         total_min_capacity += project.min_capacity
         total_max_capacity += project.max_capacity
 
-    defined_skill_ids = {s.id for s in skills} if skills else None
-
     if len(projects) < 3:
         result.warnings.append(
             f"Fewer than 3 projects are offered ({len(projects)} available); "
@@ -314,25 +375,6 @@ def validate_cohort(
 
     for student in students:
         _validate_preferences(student, project_ids, result)
-
-        if defined_skill_ids:
-            for s_id in student.skills:
-                if s_id not in defined_skill_ids:
-                    result.warnings.append(
-                        f"Student '{student.id}' lists uncatalogued skill "
-                        f"'{s_id}'. Skill IDs are case-sensitive; "
-                        "check the catalog ID."
-                    )
-
-    for project in projects:
-        if defined_skill_ids:
-            for req in project.requirements:
-                if req.skill_id not in defined_skill_ids:
-                    result.warnings.append(
-                        f"Project '{project.id}' demands uncatalogued skill "
-                        f"'{req.skill_id}'. Skill IDs are case-sensitive; "
-                        "check the catalog ID."
-                    )
 
     if fixed_assignments:
         fixed_student_counts: dict[str, int] = {}
@@ -395,6 +437,10 @@ def validate_cohort(
         )
         result.errors.append(msg)
         result.infeasibility_reasons.append(msg)
+
+    if not skill_data_is_valid:
+        result.is_valid = False
+        return result
 
     for project in projects:
         for req in project.requirements:

@@ -207,6 +207,53 @@ def test_contract_returns_preference_diagnostics(
     assert outcome.infeasibility_reasons == []
 
 
+def test_contract_reports_skill_errors_without_claiming_infeasibility() -> None:
+    """SKILL-02/03/07/08: Return several skill errors through Team A's interface."""
+    request = contract.RunRequest(
+        students=[models.Student("S1", "Student 1", skills={"py": True})],
+        projects=[models.Project(
+            "P1", "Project 1",
+            requirements=[
+                models.ProjectRequirement("P1", "py", None, "false"),  # type: ignore[arg-type]
+                models.ProjectRequirement("P1", "py", 2, True),
+            ],
+        )],
+        skills=[models.Skill("py", "Python")],
+    )
+
+    outcome = solvers.AssignmentEngine().validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert len(outcome.errors) == 4
+    assert any("Student 'S1'" in error for error in outcome.errors)
+    assert any("Project 'P1'" in error for error in outcome.errors)
+    assert outcome.infeasibility_reasons == []
+
+
+@pytest.mark.parametrize("catalogue", [None, []])
+def test_contract_distinguishes_omitted_and_empty_skill_catalogues(
+    catalogue: list[models.Skill] | None,
+) -> None:
+    """SKILL-04/05: An explicit empty catalogue must not skip reference checks."""
+    request = contract.RunRequest(
+        students=[models.Student("S1", "Student 1", skills={"py": 3})],
+        projects=[models.Project(
+            "P1", "Project 1", requirements=[models.ProjectRequirement("P1", "py", 2)]
+        )],
+        skills=catalogue,
+    )
+
+    outcome = solvers.AssignmentEngine().validate_inputs(request)
+
+    assert outcome.is_valid is (catalogue is None)
+    if catalogue is None:
+        assert any("catalogue was omitted" in warning for warning in outcome.warnings)
+    else:
+        assert len(outcome.errors) == 2
+        assert all("unknown skill 'py'" in error for error in outcome.errors)
+
+
 def test_contract_rejects_non_integer_capacity() -> None:
     """CAP-01: The engine returns a clear input error to its caller."""
     request = contract.RunRequest(

@@ -65,8 +65,8 @@ checks in `tests/test_validation.py`, and contract/form checks below.
 
 Identifier and skill-name errors stop validation before feasibility checks.
 The repositories' direct `save()` methods have not gained these checks;
-loading invalid saved records remains DB-01 work. Unknown skill handling
-remains open under SKILL-04/05.
+loading invalid saved records remains DB-01 work. Skill references follow
+SKILL-04/05 below.
 
 ## Project preferences supplied by students
 
@@ -100,14 +100,34 @@ and form tests. All use synthetic records.
 
 ## Student skills and project requirements
 
-- [ ] SKILL-01 **Missing skills from a student's profile** - we are assuming the student remains assignable and missing skills count as level 0 for matching, pending confirmation. Do not invent proficiency; mandatory requirements still apply.
-- [ ] SKILL-02 **Invalid student skill levels** - propose rejecting stored levels outside 1 to 5, fractions, text, missing values, and booleans. Agree that no skill is represented by an omitted entry; the UI currently omits level 0 entries.
-- [ ] SKILL-03 **Invalid project requirement levels** - reject required levels outside 1 to 5 or values that are not whole numbers.
-- [ ] SKILL-04 **An unknown skill is used in a profile or requirement** - decide the policy. Propose rejecting before persistence, since the database requires a matching skill record. The current validator only warns when a nonempty catalogue is supplied.
-- [ ] SKILL-05 **The skill catalogue is absent or empty** - distinguish an omitted optional catalogue from an explicitly supplied empty one. Decide how references can be verified; avoid accidentally skipping checks because the list is empty.
-- [ ] SKILL-06 **A project has no skill requirements** - accept the project. Define its skill-fit score explicitly and avoid dividing by zero; the starter edge-case test expects a score of 1.0.
-- [ ] SKILL-07 **Repeated or conflicting requirements for one skill** - propose rejecting duplicates for correction rather than silently overwriting a requirement.
-- [ ] SKILL-08 **An invalid mandatory-skill flag** - reject unsupported flag values at the relevant input boundary. For example, text such as "false" must not accidentally be treated as true.
+- [x] SKILL-01 **Missing skills from a student's profile** - accept an omitted skill as level 0, without adding it to the profile. Mandatory coverage still applies; missing skills alone do not prove that a student can be assigned.
+- [x] SKILL-02 **Invalid student skill levels** - stored levels must be integers from 1 to 5. Reject missing values, text, floats, booleans, and values outside the range. A missing skill is an omitted dictionary entry, not a stored zero.
+- [x] SKILL-03 **Invalid project requirement levels** - require integers from 1 to 5; reject other values before mandatory matching.
+- [x] SKILL-04 **Unknown skills** - reject profile and requirement references missing from a supplied catalogue, naming the student/project and skill. Forms also reject unknown skill fields instead of silently dropping them.
+- [x] SKILL-05 **Absent or empty catalogue** - omitted `None` preserves the optional contract: warn when references cannot be checked. An explicit empty list rejects all skill references. Either is accepted without a catalogue warning when no skills are used.
+- [x] SKILL-06 **No project skill requirements** - accept the project and return skill fit `1.0` with no unmet skills. Scoring nonempty requirements remains unfinished in `metrics.py`.
+- [x] SKILL-07 **Repeated or conflicting requirements** - reject both identical and conflicting duplicates for correction; leave the submitted list unchanged.
+- [x] SKILL-08 **Invalid mandatory flag** - domain objects require real `True`/`False` values. Forms accept only an unchecked box (missing/empty) or checked values `1`/`on`; reject other text, including `"false"`.
+
+These are implemented branch rules for team review. `StudentSkillsForm`
+parses student fields for both create and edit routes. Form zero/blank levels
+mean an omitted skill or optional requirement; a mandatory requirement still
+needs a level. Domain checks collect errors before using skill data for
+mandatory matching. Independent capacity checks still run. No general
+scoring formula or mandatory team-coverage policy is introduced here.
+
+Evidence: `tests/test_skill_validation.py` (67 examples), plus form, contract,
+and database-backed web tests. All examples use synthetic records.
+
+| Cases | Main tests | Verified response |
+| --- | --- | --- |
+| SKILL-01 | `test_missing_student_skill_is_level_zero`, `test_missing_skill_does_not_relax_a_mandatory_requirement` | Missing skills remain absent/level 0; unavailable required coverage is still reported. |
+| SKILL-02/03 | `test_student_skill_level_must_be_an_integer_from_one_to_five`, `test_requirement_level_must_be_an_integer_from_one_to_five`, `test_skill_level_boundaries_and_boolean_flags_are_valid` | Reject 16 bad values per level field; accept levels 1 and 5. |
+| SKILL-04/05 | `test_skill_reference_checks_distinguish_omitted_and_empty_catalogues`, `test_no_catalogue_is_needed_when_no_skills_are_used` | Omitted catalogue warns for references; supplied catalogues reject unknown IDs, including when empty. |
+| SKILL-06 | `test_project_without_requirements_has_full_skill_fit` | Empty and populated profiles both receive `(1.0, [])` for a project with no requirements. |
+| SKILL-07 | `test_repeated_requirements_are_rejected` | Identical rows, different levels, and conflicting flags all give errors without changing the list. |
+| SKILL-08 | `test_mandatory_skill_flag_must_be_a_boolean`, `test_project_form_rejects_unsupported_mandatory_flags` | Reject non-boolean domain flags and unsupported checkbox text; do not treat `"false"` as true. |
+| Interface/forms | `test_contract_reports_skill_errors_without_claiming_infeasibility`, `test_bad_student_skills_leave_saved_records_unchanged`, `test_bad_project_skill_fields_leave_saved_records_unchanged` | Errors reach Team A; rejected create/edit forms preserve saved data. |
 
 ## Project capacities
 
@@ -181,13 +201,13 @@ real optimization method works.
 
 ## Verification and next steps
 
-On 2026-10-20, **195 focused tests passed**:
+On 2026-10-20, the focused checks returned **315 passed, 4 xfailed**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_preference_validation.py tests/test_identifier_validation.py tests/test_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_persistence.py -q --tb=short -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests/test_skill_validation.py tests/test_forms.py tests/test_validation.py tests/test_identifier_validation.py tests/test_preference_validation.py tests/test_contract_and_engine.py tests/test_visualization_component.py tests/test_persistence.py tests/test_metrics.py -q --tb=short -p no:cacheprovider
 ```
 
-Full suite: **230 passed, 12 xfailed, 4 failed**:
+Full suite: **332 passed, 12 xfailed, 4 failed**:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
@@ -198,11 +218,16 @@ The four failures are the existing CAP-04 real-engine boundary tests;
 still does not meet the passing-suite requirement for merging. Database
 checks ran with access to pytest's separate temporary databases.
 
-Next: SKILL-02, SKILL-03, and the open policy/solver checks. Shared form
+Next: FIX-01 to FIX-05 and the open feasibility/solver checks. Shared form
 changes need the normal cross-team PR review. No contract, model, schema,
-solver method, or scoring formula changed in this preference work.
+or solver method changed. General scoring remains unfinished; only the
+documented no-requirement skill-fit case is implemented.
 
 AI assisted with implementation, synthetic tests, and this checklist on
 2026-10-20. Preference work added 35 domain, 7 contract, and 4 form examples.
 Earlier detailed test walkthroughs were shortened into the tables above;
 their history remains in Git. Student understanding is not yet verified.
+Skill work added 67 domain/score examples, 3 contract examples, 10 web examples,
+and 21 form examples, and replaced the old ignored-unknown-field form test
+with two rejection examples. Existing unknown-skill tests now expect errors
+instead of warnings. AI assisted with these changes and the short evidence table.
