@@ -17,14 +17,32 @@ class InvalidDatabaseRecords(ValueError):
     """Identifies saved records that cannot safely be used as run inputs."""
 
     def __init__(self, errors: list[str]) -> None:
+        """Retain the saved-record errors for the error page.
+
+        Args:
+            errors: Validation messages identifying invalid saved records.
+        """
         self.errors = list(errors)
         super().__init__("; ".join(errors))
 
 
 def read_boolean(value: object, field: str) -> bool:
-    """Converts valid SQLite flags only; text such as 'false' is not true."""
+    """Convert SQLite flags without treating nonempty text as true.
+
+    Args:
+        value: Raw flag loaded from SQLite.
+        field: Record and field description used in diagnostics.
+
+    Returns:
+        The boolean represented by integer 0 or 1.
+
+    Raises:
+        InvalidDatabaseRecords: The value is not an integer 0 or 1.
+    """
     if type(value) is not int or value not in (0, 1):
-        raise InvalidDatabaseRecords([f"{field}: saved mandatory flag must be 0 or 1."])
+        raise InvalidDatabaseRecords(
+            [f"{field}: saved mandatory flag must be 0 or 1."]
+        )
     return bool(value)
 
 
@@ -32,8 +50,11 @@ class DatabaseManager:
     """Manages SQLite database connections and transactions."""
 
     def __init__(
-        self, db_path: pathlib.Path | str | None = None, timeout_seconds: float = 30.0,
-        *, transaction_connection: sqlite3.Connection | None = None,
+        self,
+        db_path: pathlib.Path | str | None = None,
+        timeout_seconds: float = 30.0,
+        *,
+        transaction_connection: sqlite3.Connection | None = None,
     ) -> None:
         """Initializes the database manager with target file path.
 
@@ -61,7 +82,9 @@ class DatabaseManager:
         try:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as error:
-            raise sqlite3.OperationalError("The database folder is unavailable.") from error
+            raise sqlite3.OperationalError(
+                "The database folder is unavailable."
+            ) from error
         conn = sqlite3.connect(
             str(self.db_path),
             timeout=self.timeout_seconds,
@@ -77,7 +100,7 @@ class DatabaseManager:
         return conn
 
     def check_input_integrity(self) -> None:
-        """Checks references and raw flags before repositories convert saved data.
+        """Check references and raw flags before loading saved records.
 
         Other input types/ranges are checked by the domain validator after
         loading. This method neither repairs nor drops invalid records.
@@ -90,11 +113,16 @@ class DatabaseManager:
                     f"a reference to '{row['parent']}' has no matching record."
                 )
             rows = conn.execute(
-                "SELECT project_id, skill_id, is_mandatory FROM project_requirements;"
+                "SELECT project_id, skill_id, is_mandatory FROM "
+                "project_requirements;"
             )
             for row in rows:
                 try:
-                    read_boolean(row["is_mandatory"], f"Project '{row['project_id']}', skill '{row['skill_id']}'")
+                    read_boolean(
+                        row["is_mandatory"],
+                        f"Project '{row['project_id']}', skill "
+                        f"'{row['skill_id']}'",
+                    )
                 except InvalidDatabaseRecords as error:
                     errors.extend(error.errors)
         if errors:
@@ -122,7 +150,14 @@ class DatabaseManager:
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator["DatabaseManager"]:
-        """Shares one transaction across repositories; the owner commits or rolls back."""
+        """Share one transaction across participating repositories.
+
+        The owning connection commits on success and rolls back on error.
+        Repository calls using the yielded manager cannot commit separately.
+
+        Yields:
+            A manager bound to the transaction's shared connection.
+        """
         with self.connection() as conn:
             yield DatabaseManager(
                 self.db_path, self.timeout_seconds, transaction_connection=conn

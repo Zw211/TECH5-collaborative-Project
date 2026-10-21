@@ -5,29 +5,49 @@ between database tables and domain models.
 """
 
 import json
-import sqlite3
-from typing import Any
 
 from app.domain import models
 from app.persistence import database
 
 
 class CohortRepository:
-    """Replaces related cohort records in one transaction after caller validation."""
+    """Replace related cohort records atomically after validation."""
 
     def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        """Initialize the repository with its database manager.
+
+        Args:
+            db: Shared database manager, or the application's default manager.
+        """
         self.db = db or database.db_manager
 
     def replace(
-        self, students: list[models.Student], projects: list[models.Project],
-        skills: list[models.Skill], fixed_assignments: list[models.FixedAssignment],
+        self,
+        students: list[models.Student],
+        projects: list[models.Project],
+        skills: list[models.Skill],
+        fixed_assignments: list[models.FixedAssignment],
     ) -> None:
-        """Commits the complete replacement, or rolls back all of it on failure."""
+        """Replace the cohort, rolling back every change on failure.
+
+        Args:
+            students: Complete replacement student cohort.
+            projects: Complete replacement project catalogue.
+            skills: Complete replacement skill catalogue.
+            fixed_assignments: Replacement administrative locks.
+
+        Raises:
+            sqlite3.DatabaseError: Replacement could not be saved atomically.
+        """
         with self.db.connection() as conn:
             for statement in (
-                "DELETE FROM fixed_assignments;", "DELETE FROM preferences;",
-                "DELETE FROM student_skills;", "DELETE FROM project_requirements;",
-                "DELETE FROM students;", "DELETE FROM projects;", "DELETE FROM skills;",
+                "DELETE FROM fixed_assignments;",
+                "DELETE FROM preferences;",
+                "DELETE FROM student_skills;",
+                "DELETE FROM project_requirements;",
+                "DELETE FROM students;",
+                "DELETE FROM projects;",
+                "DELETE FROM skills;",
             ):
                 conn.execute(statement)
             conn.executemany(
@@ -36,33 +56,65 @@ class CohortRepository:
             )
             for project in projects:
                 conn.execute(
-                    "INSERT INTO projects (id, title, description, min_capacity, max_capacity) VALUES (?, ?, ?, ?, ?);",
-                    (project.id, project.title, project.description, project.min_capacity, project.max_capacity),
+                    "INSERT INTO projects (id, title, description, "
+                    "min_capacity, max_capacity) VALUES (?, ?, ?, ?, ?);",
+                    (
+                        project.id,
+                        project.title,
+                        project.description,
+                        project.min_capacity,
+                        project.max_capacity,
+                    ),
                 )
                 for requirement in project.requirements:
                     conn.execute(
-                        "INSERT INTO project_requirements (project_id, skill_id, minimum_level, is_mandatory) VALUES (?, ?, ?, ?);",
-                        (project.id, requirement.skill_id, requirement.minimum_level, int(requirement.is_mandatory)),
+                        "INSERT INTO project_requirements (project_id, "
+                        "skill_id, minimum_level, is_mandatory) VALUES (?, "
+                        "?, ?, ?);",
+                        (
+                            project.id,
+                            requirement.skill_id,
+                            requirement.minimum_level,
+                            int(requirement.is_mandatory),
+                        ),
                     )
             for student in students:
-                conn.execute("INSERT INTO students (id, display_name) VALUES (?, ?);", (student.id, student.display_name))
+                conn.execute(
+                    "INSERT INTO students (id, display_name) VALUES (?, ?);",
+                    (student.id, student.display_name),
+                )
                 for skill_id, level in student.skills.items():
-                    conn.execute("INSERT INTO student_skills VALUES (?, ?, ?);", (student.id, skill_id, level))
+                    conn.execute(
+                        "INSERT INTO student_skills VALUES (?, ?, ?);",
+                        (student.id, skill_id, level),
+                    )
                 for preference in student.preferences:
-                    conn.execute("INSERT INTO preferences VALUES (?, ?, ?);", (student.id, preference.project_id, preference.rank))
+                    conn.execute(
+                        "INSERT INTO preferences VALUES (?, ?, ?);",
+                        (student.id, preference.project_id, preference.rank),
+                    )
             for fixed in fixed_assignments:
                 conn.execute(
-                    "INSERT INTO fixed_assignments (student_id, project_id, status, reason) VALUES (?, ?, ?, ?);",
-                    (fixed.student_id, fixed.project_id, fixed.status, fixed.reason),
+                    "INSERT INTO fixed_assignments (student_id, "
+                    "project_id, status, reason) VALUES (?, ?, ?, ?);",
+                    (
+                        fixed.student_id,
+                        fixed.project_id,
+                        fixed.status,
+                        fixed.reason,
+                    ),
                 )
 
 
 class SkillRepository:
     """Repository managing skill catalog records."""
 
-    def __init__(
-        self, db: database.DatabaseManager | None = None
-    ) -> None:
+    def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        """Initialize the repository with its database manager.
+
+        Args:
+            db: Shared database manager, or the application's default manager.
+        """
         self.db = db or database.db_manager
 
     def list_all(self) -> list[models.Skill]:
@@ -118,9 +170,12 @@ class SkillRepository:
 class StudentRepository:
     """Repository managing student roster, skills, and preferences."""
 
-    def __init__(
-        self, db: database.DatabaseManager | None = None
-    ) -> None:
+    def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        """Initialize the repository with its database manager.
+
+        Args:
+            db: Shared database manager, or the application's default manager.
+        """
         self.db = db or database.db_manager
 
     def list_all(self) -> list[models.Student]:
@@ -272,9 +327,12 @@ class StudentRepository:
 class ProjectRepository:
     """Repository managing semester projects and requirements."""
 
-    def __init__(
-        self, db: database.DatabaseManager | None = None
-    ) -> None:
+    def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        """Initialize the repository with its database manager.
+
+        Args:
+            db: Shared database manager, or the application's default manager.
+        """
         self.db = db or database.db_manager
 
     def list_all(self) -> list[models.Project]:
@@ -306,7 +364,8 @@ class ProjectRepository:
                         skill_id=r_row["skill_id"],
                         minimum_level=r_row["minimum_level"],
                         is_mandatory=database.read_boolean(
-                            r_row["is_mandatory"], f"Project '{p_id}', skill '{r_row['skill_id']}'"
+                            r_row["is_mandatory"],
+                            f"Project '{p_id}', skill '{r_row['skill_id']}'",
                         ),
                     )
                     for r_row in cur.fetchall()
@@ -352,7 +411,8 @@ class ProjectRepository:
                     skill_id=r_row["skill_id"],
                     minimum_level=r_row["minimum_level"],
                     is_mandatory=database.read_boolean(
-                        r_row["is_mandatory"], f"Project '{project_id}', skill '{r_row['skill_id']}'"
+                        r_row["is_mandatory"],
+                        f"Project '{project_id}', skill '{r_row['skill_id']}'",
                     ),
                 )
                 for r_row in cur.fetchall()
@@ -423,9 +483,12 @@ class ProjectRepository:
 class FixedAssignmentRepository:
     """Repository managing administrative locked pre-allocations."""
 
-    def __init__(
-        self, db: database.DatabaseManager | None = None
-    ) -> None:
+    def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        """Initialize the repository with its database manager.
+
+        Args:
+            db: Shared database manager, or the application's default manager.
+        """
         self.db = db or database.db_manager
 
     def list_all(self) -> list[models.FixedAssignment]:
@@ -475,9 +538,12 @@ class FixedAssignmentRepository:
 class RunRepository:
     """Repository managing assignment runs, solutions, and assignments."""
 
-    def __init__(
-        self, db: database.DatabaseManager | None = None
-    ) -> None:
+    def __init__(self, db: database.DatabaseManager | None = None) -> None:
+        """Initialize the repository with its database manager.
+
+        Args:
+            db: Shared database manager, or the application's default manager.
+        """
         self.db = db or database.db_manager
 
     def save_run(self, run: models.AssignmentRun) -> None:
@@ -738,9 +804,8 @@ class RunRepository:
             cur.execute("DELETE FROM skills;")
 
     def clear_all_current_solutions(self) -> None:
-        """Wipes all current solutions"""
+        """Delete all solutions and their parent runs."""
         with self.db.connection() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM solutions;")
             cur.execute("DELETE FROM assignment_runs;")
-

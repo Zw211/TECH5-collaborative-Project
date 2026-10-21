@@ -5,8 +5,6 @@ of the TECH5 specification, supporting Administrator, Programme Coordinator,
 and Student Viewer roles.
 """
 
-from typing import Any
-
 import flask
 
 

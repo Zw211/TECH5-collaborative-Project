@@ -85,7 +85,7 @@ def test_assignment_strategy_abc() -> None:
 
 
 def test_assignment_engine_initialization() -> None:
-    """Verifies that AssignmentEngine initializes cleanly with empty strategies."""
+    """Initialize an engine without registered solver strategies."""
     engine = solvers.AssignmentEngine()
     assert isinstance(engine, contract.AssignmentEngineContract)
     assert isinstance(engine.strategies, dict)
@@ -107,7 +107,8 @@ def test_assignment_engine_raises_not_implemented() -> None:
 
 @pytest.mark.xfail(
     raises=NotImplementedError,
-    reason="TODO (Team B): Implement optimization solver and alternative generation",
+    reason="TODO (Team B): Implement optimization solver and alternative "
+    "generation",
 )
 def test_distinct_alternatives_generation() -> None:
     """Verifies AssignmentEngine produces distinct alternatives."""
@@ -135,6 +136,6 @@ def test_distinct_alternatives_generation() -> None:
                 (a.student_id, a.project_id)
                 for a in run.solutions[j].assignments
             }
-            assert (
-                pairs_i != pairs_j
-            ), f"Solution {i+1} and {j+1} are duplicate allocations!"
+            assert pairs_i != pairs_j, (
+                f"Solution {i + 1} and {j + 1} are duplicate allocations!"
+            )

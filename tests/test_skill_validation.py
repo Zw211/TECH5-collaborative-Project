@@ -2,10 +2,8 @@
 
 import pytest
 
-from app.domain import models
-from app.domain import validation
+from app.domain import models, validation
 from app.engine import metrics
-
 
 INVALID_LEVELS = [
     pytest.param(0, id="zero"),
@@ -32,11 +30,15 @@ def test_missing_student_skill_is_level_zero(profile: dict[str, int]) -> None:
     """SKILL-01: Missing skills do not make an optional requirement invalid."""
     student = models.Student("S1", "Student 1", skills=profile.copy())
     project = models.Project(
-        "P1", "Project 1", requirements=[models.ProjectRequirement("P1", "py", 2)]
+        "P1",
+        "Project 1",
+        requirements=[models.ProjectRequirement("P1", "py", 2)],
     )
 
     result = validation.validate_cohort(
-        [student], [project], [models.Skill("py", "Python"), models.Skill("sql", "SQL")]
+        [student],
+        [project],
+        [models.Skill("py", "Python"), models.Skill("sql", "SQL")],
     )
 
     assert result.is_valid is True
@@ -47,30 +49,47 @@ def test_missing_student_skill_is_level_zero(profile: dict[str, int]) -> None:
 
 
 def test_missing_skill_does_not_relax_a_mandatory_requirement() -> None:
-    """SKILL-01: A missing profile cannot supply unavailable mandatory coverage."""
+    """Reject mandatory coverage unavailable in the student profiles."""
     project = models.Project(
-        "P1", "Project 1", min_capacity=1,
+        "P1",
+        "Project 1",
+        min_capacity=1,
         requirements=[models.ProjectRequirement("P1", "py", 1, True)],
     )
 
     result = validation.validate_cohort(
-        [models.Student("S1", "Student 1")], [project], [models.Skill("py", "Python")]
+        [models.Student("S1", "Student 1")],
+        [project],
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_feasible is False
-    assert any("mandatory skill 'py'" in reason for reason in result.infeasibility_reasons)
+    assert any(
+        "mandatory skill 'py'" in reason
+        for reason in result.infeasibility_reasons
+    )
 
 
 @pytest.mark.parametrize("level", INVALID_LEVELS)
-def test_student_skill_level_must_be_an_integer_from_one_to_five(level: object) -> None:
+def test_student_skill_level_must_be_an_integer_from_one_to_five(
+    level: object,
+) -> None:
     """SKILL-02: Stored profile levels must be usable before any matching."""
-    student = models.Student("S1", "Student 1", skills={"py": level})  # type: ignore[dict-item]
+    student = models.Student(
+        "S1",
+        "Student 1",
+        skills={"py": level},
+    )  # type: ignore[dict-item]
     project = models.Project(
-        "P1", "Project 1", min_capacity=1,
+        "P1",
+        "Project 1",
+        min_capacity=1,
         requirements=[models.ProjectRequirement("P1", "py", 2, True)],
     )
 
-    result = validation.validate_cohort([student], [project], [models.Skill("py", "Python")])
+    result = validation.validate_cohort(
+        [student], [project], [models.Skill("py", "Python")]
+    )
 
     assert result.is_valid is False
     assert len(result.errors) == 1
@@ -80,16 +99,28 @@ def test_student_skill_level_must_be_an_integer_from_one_to_five(level: object) 
 
 
 @pytest.mark.parametrize("level", INVALID_LEVELS)
-def test_requirement_level_must_be_an_integer_from_one_to_five(level: object) -> None:
+def test_requirement_level_must_be_an_integer_from_one_to_five(
+    level: object,
+) -> None:
     """SKILL-03: Reject bad requirements before comparing proficiency levels."""
     project = models.Project(
-        "P1", "Project 1", min_capacity=1,
-        requirements=[models.ProjectRequirement("P1", "py", level, True)],  # type: ignore[arg-type]
+        "P1",
+        "Project 1",
+        min_capacity=1,
+        requirements=[
+            models.ProjectRequirement(
+                "P1",
+                "py",
+                level,
+                True,
+            )
+        ],  # type: ignore[arg-type]
     )
 
     result = validation.validate_cohort(
         [models.Student("S1", "Student 1", skills={"py": 5})],
-        [project], [models.Skill("py", "Python")],
+        [project],
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_valid is False
@@ -101,15 +132,19 @@ def test_requirement_level_must_be_an_integer_from_one_to_five(level: object) ->
 
 @pytest.mark.parametrize("level", [1, 5])
 @pytest.mark.parametrize("mandatory", [False, True])
-def test_skill_level_boundaries_and_boolean_flags_are_valid(level: int, mandatory: bool) -> None:
+def test_skill_level_boundaries_and_boolean_flags_are_valid(
+    level: int, mandatory: bool
+) -> None:
     """SKILL-02/03/08: Both level boundaries and real booleans are allowed."""
     project = models.Project(
-        "P1", "Project 1",
+        "P1",
+        "Project 1",
         requirements=[models.ProjectRequirement("P1", "py", level, mandatory)],
     )
     result = validation.validate_cohort(
         [models.Student("S1", "Student 1", skills={"py": level})],
-        [project], [models.Skill("py", "Python")],
+        [project],
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_valid is True
@@ -118,24 +153,30 @@ def test_skill_level_boundaries_and_boolean_flags_are_valid(level: int, mandator
 
 
 @pytest.mark.parametrize("owner", ["student", "project"])
-@pytest.mark.parametrize("catalogue", [None, [], [models.Skill("py", "Python")]])
+@pytest.mark.parametrize(
+    "catalogue", [None, [], [models.Skill("py", "Python")]]
+)
 def test_skill_reference_checks_distinguish_omitted_and_empty_catalogues(
     owner: str, catalogue: list[models.Skill] | None
 ) -> None:
-    """SKILL-04/05: Omitted catalogue warns; supplied catalogues enforce membership."""
+    """Distinguish missing catalogues from enforced empty catalogues."""
     student = models.Student("S1", "Student 1")
     project = models.Project("P1", "Project 1")
     if owner == "student":
         student.skills = {"ghost": 2}
     else:
-        project.requirements = [models.ProjectRequirement("P1", "ghost", 2, True)]
+        project.requirements = [
+            models.ProjectRequirement("P1", "ghost", 2, True)
+        ]
         student.skills = {"ghost": 2}
 
     result = validation.validate_cohort([student], [project], catalogue)
 
     if catalogue is None:
         assert result.is_valid is True
-        assert any("catalogue was omitted" in warning for warning in result.warnings)
+        assert any(
+            "catalogue was omitted" in warning for warning in result.warnings
+        )
     else:
         assert result.is_valid is False
         owner_id = "S1" if owner == "student" else "P1"
@@ -147,18 +188,26 @@ def test_skill_reference_checks_distinguish_omitted_and_empty_catalogues(
 
 
 @pytest.mark.parametrize("catalogue", [None, []])
-def test_no_catalogue_is_needed_when_no_skills_are_used(catalogue: list[models.Skill] | None) -> None:
-    """SKILL-05/06: Skill-free data need no catalogue or missing-catalogue warning."""
+def test_no_catalogue_is_needed_when_no_skills_are_used(
+    catalogue: list[models.Skill] | None,
+) -> None:
+    """Accept skill-free data without a missing-catalogue warning."""
     result = validation.validate_cohort(
-        [models.Student("S1", "Student 1")], [models.Project("P1", "Project 1")], catalogue
+        [models.Student("S1", "Student 1")],
+        [models.Project("P1", "Project 1")],
+        catalogue,
     )
 
     assert result.is_valid is True
-    assert not any("catalogue was omitted" in warning for warning in result.warnings)
+    assert not any(
+        "catalogue was omitted" in warning for warning in result.warnings
+    )
 
 
 @pytest.mark.parametrize("profile", [{}, {"py": 5}])
-def test_project_without_requirements_has_full_skill_fit(profile: dict[str, int]) -> None:
+def test_project_without_requirements_has_full_skill_fit(
+    profile: dict[str, int],
+) -> None:
     """SKILL-06: With no requirements there is nothing unmet or to divide by."""
     student = models.Student("S1", "Student 1", skills=profile)
     project = models.Project("P1", "Project 1")
@@ -166,18 +215,25 @@ def test_project_without_requirements_has_full_skill_fit(profile: dict[str, int]
     assert metrics.calculate_assignment_skill_fit(student, project) == (1.0, [])
 
 
-@pytest.mark.parametrize(("second_level", "second_flag"), [(2, False), (3, False), (2, True)])
-def test_repeated_requirements_are_rejected(second_level: int, second_flag: bool) -> None:
+@pytest.mark.parametrize(
+    ("second_level", "second_flag"), [(2, False), (3, False), (2, True)]
+)
+def test_repeated_requirements_are_rejected(
+    second_level: int, second_flag: bool
+) -> None:
     """SKILL-07: Identical and conflicting rows both need correction."""
     requirements = [
         models.ProjectRequirement("P1", "py", 2, False),
         models.ProjectRequirement("P1", "py", second_level, second_flag),
     ]
-    project = models.Project("P1", "Project 1", requirements=requirements.copy())
+    project = models.Project(
+        "P1", "Project 1", requirements=requirements.copy()
+    )
 
     result = validation.validate_cohort(
         [models.Student("S1", "Student 1", skills={"py": 5})],
-        [project], [models.Skill("py", "Python")],
+        [project],
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_valid is False
@@ -189,17 +245,29 @@ def test_repeated_requirements_are_rejected(second_level: int, second_flag: bool
 
 
 @pytest.mark.parametrize(
-    "flag", [None, 0, 1, -1, 2, "true", "false", "0", "1", "", [], {}, 0.0, 1.0],
+    "flag",
+    [None, 0, 1, -1, 2, "true", "false", "0", "1", "", [], {}, 0.0, 1.0],
 )
 def test_mandatory_skill_flag_must_be_a_boolean(flag: object) -> None:
-    """SKILL-08: Truthy strings or numbers are not accepted as domain booleans."""
+    """Reject truthy non-boolean values for mandatory flags."""
     project = models.Project(
-        "P1", "Project 1", min_capacity=1,
-        requirements=[models.ProjectRequirement("P1", "py", 1, flag)],  # type: ignore[arg-type]
+        "P1",
+        "Project 1",
+        min_capacity=1,
+        requirements=[
+            models.ProjectRequirement(
+                "P1",
+                "py",
+                1,
+                flag,
+            )
+        ],  # type: ignore[arg-type]
     )
 
     result = validation.validate_cohort(
-        [models.Student("S1", "Student 1")], [project], [models.Skill("py", "Python")]
+        [models.Student("S1", "Student 1")],
+        [project],
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_valid is False
@@ -210,17 +278,30 @@ def test_mandatory_skill_flag_must_be_a_boolean(flag: object) -> None:
 
 
 def test_skill_errors_are_reported_together_before_mandatory_matching() -> None:
-    """Several bad fields must not cause a crash or a false skill-infeasibility claim."""
+    """Collect skill errors before checking mandatory coverage."""
     project = models.Project(
-        "P1", "Project 1",
+        "P1",
+        "Project 1",
         requirements=[
-            models.ProjectRequirement("P1", "py", None, "false"),  # type: ignore[arg-type]
+            models.ProjectRequirement(
+                "P1",
+                "py",
+                None,
+                "false",
+            ),  # type: ignore[arg-type]
             models.ProjectRequirement("P1", "py", 2, True),
         ],
     )
     result = validation.validate_cohort(
-        [models.Student("S1", "Student 1", skills={"py": "bad"})],  # type: ignore[dict-item]
-        [project], [models.Skill("py", "Python")],
+        [
+            models.Student(
+                "S1",
+                "Student 1",
+                skills={"py": "bad"},
+            )
+        ],  # type: ignore[dict-item]
+        [project],
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_valid is False

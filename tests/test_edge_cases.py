@@ -21,8 +21,7 @@ specification:
 
 import pytest
 
-from app.domain import models
-from app.domain import validation
+from app.domain import models, validation
 from app.engine import solvers
 
 

@@ -10,8 +10,7 @@ import pathlib
 import pytest
 
 from app import create_app
-from app.contract import contract
-from app.contract import mocks
+from app.contract import contract, mocks
 from app.domain import models
 from app.engine import solvers
 from app.samples import demo_data
@@ -124,12 +123,15 @@ def test_contract_reports_identifier_and_parent_errors() -> None:
     request = contract.RunRequest(
         students=[
             models.Student(
-                "S1", "Student 1", preferences=[models.Preference("S2", "P1", 1)]
+                "S1",
+                "Student 1",
+                preferences=[models.Preference("S2", "P1", 1)],
             )
         ],
         projects=[
             models.Project(
-                "P1", "Project 1",
+                "P1",
+                "Project 1",
                 requirements=[models.ProjectRequirement("P2", "py")],
             )
         ],
@@ -162,28 +164,39 @@ def test_contract_reports_identifier_and_parent_errors() -> None:
         pytest.param([("P1", 1)], True, "at least 3", id="short-list"),
         pytest.param([], True, "unranked project", id="no-choices"),
         pytest.param(
-            [("P1", 1), ("P1", 2)], False,
-            "project 'P1' more than once", id="repeated-project",
+            [("P1", 1), ("P1", 2)],
+            False,
+            "project 'P1' more than once",
+            id="repeated-project",
         ),
         pytest.param(
-            [("P1", 1), ("P2", 1)], False,
-            "rank 1 more than once", id="tied-rank",
+            [("P1", 1), ("P2", 1)],
+            False,
+            "rank 1 more than once",
+            id="tied-rank",
         ),
         pytest.param(
-            [("P1", True)], False, "positive whole number", id="invalid-rank",
+            [("P1", True)],
+            False,
+            "positive whole number",
+            id="invalid-rank",
         ),
         pytest.param([("P1", 2)], False, "without gaps", id="rank-gap"),
         pytest.param(
-            [("P99", 1)], False, "unknown project 'P99'", id="unknown-project",
+            [("P99", 1)],
+            False,
+            "unknown project 'P99'",
+            id="unknown-project",
         ),
     ],
 )
 def test_contract_returns_preference_diagnostics(
     choices: list[tuple[str, int]], expected_valid: bool, message: str
 ) -> None:
-    """PREF checks reach Team A as the contract's existing errors and warnings."""
+    """Return preference diagnostics through the existing contract."""
     student = models.Student(
-        "S1", "Student 1",
+        "S1",
+        "Student 1",
         preferences=[
             models.Preference("S1", project_id, rank)
             for project_id, rank in choices
@@ -208,16 +221,24 @@ def test_contract_returns_preference_diagnostics(
 
 
 def test_contract_reports_skill_errors_without_claiming_infeasibility() -> None:
-    """SKILL-02/03/07/08: Return several skill errors through Team A's interface."""
+    """Return several skill errors without claiming infeasibility."""
     request = contract.RunRequest(
         students=[models.Student("S1", "Student 1", skills={"py": True})],
-        projects=[models.Project(
-            "P1", "Project 1",
-            requirements=[
-                models.ProjectRequirement("P1", "py", None, "false"),  # type: ignore[arg-type]
-                models.ProjectRequirement("P1", "py", 2, True),
-            ],
-        )],
+        projects=[
+            models.Project(
+                "P1",
+                "Project 1",
+                requirements=[
+                    models.ProjectRequirement(
+                        "P1",
+                        "py",
+                        None,
+                        "false",
+                    ),  # type: ignore[arg-type]
+                    models.ProjectRequirement("P1", "py", 2, True),
+                ],
+            )
+        ],
         skills=[models.Skill("py", "Python")],
     )
 
@@ -235,12 +256,16 @@ def test_contract_reports_skill_errors_without_claiming_infeasibility() -> None:
 def test_contract_distinguishes_omitted_and_empty_skill_catalogues(
     catalogue: list[models.Skill] | None,
 ) -> None:
-    """SKILL-04/05: An explicit empty catalogue must not skip reference checks."""
+    """Reject unknown skills when the supplied catalogue is empty."""
     request = contract.RunRequest(
         students=[models.Student("S1", "Student 1", skills={"py": 3})],
-        projects=[models.Project(
-            "P1", "Project 1", requirements=[models.ProjectRequirement("P1", "py", 2)]
-        )],
+        projects=[
+            models.Project(
+                "P1",
+                "Project 1",
+                requirements=[models.ProjectRequirement("P1", "py", 2)],
+            )
+        ],
         skills=catalogue,
     )
 
@@ -248,7 +273,9 @@ def test_contract_distinguishes_omitted_and_empty_skill_catalogues(
 
     assert outcome.is_valid is (catalogue is None)
     if catalogue is None:
-        assert any("catalogue was omitted" in warning for warning in outcome.warnings)
+        assert any(
+            "catalogue was omitted" in warning for warning in outcome.warnings
+        )
     else:
         assert len(outcome.errors) == 2
         assert all("unknown skill 'py'" in error for error in outcome.errors)
@@ -256,14 +283,18 @@ def test_contract_distinguishes_omitted_and_empty_skill_catalogues(
 
 @pytest.mark.parametrize("catalogue", [None, []])
 def test_convenience_run_preserves_skill_catalogue_policy(
-    catalogue: list[models.Skill] | None, monkeypatch: pytest.MonkeyPatch,
+    catalogue: list[models.Skill] | None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SKILL-05: Check the convenience API using validation only, without a solver."""
+    """Preserve catalogue validation through the convenience API."""
     engine = solvers.AssignmentEngine()
 
     def validate_only(request: contract.RunRequest) -> models.AssignmentRun:
+        """Validate the constructed request without executing a solver."""
         outcome = engine.validate_inputs(request)
-        return models.AssignmentRun("validation-only", diagnostics=outcome.to_dict())
+        return models.AssignmentRun(
+            "validation-only", diagnostics=outcome.to_dict()
+        )
 
     monkeypatch.setattr(engine, "execute_run", validate_only)
     run = engine.run_assignment(
@@ -274,9 +305,14 @@ def test_convenience_run_preserves_skill_catalogue_policy(
 
     assert run.diagnostics["is_valid"] is (catalogue is None)
     if catalogue is None:
-        assert any("catalogue was omitted" in warning for warning in run.diagnostics["warnings"])
+        assert any(
+            "catalogue was omitted" in warning
+            for warning in run.diagnostics["warnings"]
+        )
     else:
-        assert any("unknown skill 'py'" in error for error in run.diagnostics["errors"])
+        assert any(
+            "unknown skill 'py'" in error for error in run.diagnostics["errors"]
+        )
     assert run.solutions == []
 
 
@@ -397,7 +433,7 @@ def test_contract_compare_solutions(tmp_path: pathlib.Path) -> None:
 
 
 def test_mock_engine_provided() -> None:
-    """Verifies that MockAssignmentEngine implements the contract out of the box."""
+    """Verify the mock engine implements the component contract."""
     mock_engine = mocks.MockAssignmentEngine()
     assert isinstance(mock_engine, contract.AssignmentEngineContract)
 

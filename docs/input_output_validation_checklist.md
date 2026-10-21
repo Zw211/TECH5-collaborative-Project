@@ -1,5 +1,15 @@
 # Input and output validation checklist
 
+**Quality review, 21 October 2026:** Full pytest result:
+`4 failed, 440 passed, 12 xfailed in 20.04s`. No new xfails or skips compared
+with freshly fetched `origin/main` at `023e00e`. Ruff lint, Google docstrings,
+function annotations, formatting, and the 80-character Python line limit pass.
+The four CAP-04 real-engine failures remain ordinary failures; the user asked
+to leave solver implementation for a separate PR. The refactor does not close
+any unfinished output cases or satisfy the passing-suite merge gate. Commands
+and the responsibilities preserved are in
+[testing and code quality](testing_and_quality.md).
+
 This is Team B's working list of things that could go wrong with the data,
 the assignment results, or saving and loading them. It covers the situations
 in the course brief and additional examples found while reviewing the starter.
@@ -64,7 +74,7 @@ checks in `tests/test_validation.py`, and contract/form checks below.
 | ID-03/04 | `test_invalid_catalogue_identifier_is_rejected`, `test_invalid_reference_identifiers_are_reported_together`, `test_unhashable_reference_identifiers_do_not_crash` | Blank, non-text, and padded IDs return field errors without crashing. |
 | ID-05/06 | `test_duplicate_identifiers`, `test_duplicate_skill_identifiers_are_rejected`, `test_duplicate_skill_names_are_rejected`, `test_skill_name_must_be_nonempty_text` | Duplicate IDs/names and unusable names are rejected. |
 | ID-07 | `test_preference_must_belong_to_containing_student`, `test_requirement_must_belong_to_containing_project` | Wrong owners are identified, including existing IDs and case differences. |
-| ID-08 | `test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique`, `test_unmatched_reference_case_is_explained_without_changing_ids`, `test_ambiguous_project_case_requires_exact_id` | Exact case-distinct references survive validation and persistence; ambiguous form input is rejected. |
+| ID-08 | `test_case_sensitive_ids_allow_duplicate_display_names`, `test_unmatched_reference_case_is_explained_without_changing_ids`, `test_ambiguous_project_case_requires_exact_id` | Exact case-distinct references survive validation and persistence; ambiguous form input is rejected. |
 | Interface/forms | `test_contract_reports_identifier_and_parent_errors`, `test_create_skill_rejects_name_matching_padded_existing_name` | Errors reach Team A; rejected duplicate names are not saved. |
 
 Identifier and skill-name errors stop validation before feasibility checks.

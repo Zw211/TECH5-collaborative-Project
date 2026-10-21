@@ -2,9 +2,7 @@
 
 import pytest
 
-from app.domain import models
-from app.domain import validation
-
+from app.domain import models, validation
 
 INVALID_IDENTIFIERS = [
     pytest.param("", "empty", id="empty-text"),
@@ -34,7 +32,10 @@ def test_invalid_catalogue_identifier_is_rejected(
     elif record_type == "project":
         project.id = identifier  # type: ignore[assignment]
     else:
-        skill = models.Skill(id=identifier, name="Python")  # type: ignore[arg-type]
+        skill = models.Skill(
+            id=identifier,
+            name="Python",
+        )  # type: ignore[arg-type]
 
     result = validation.validate_cohort([student], [project], [skill])
 
@@ -56,17 +57,27 @@ def test_invalid_reference_identifiers_are_reported_together(
         display_name="Student 1",
         skills={identifier: 3},  # type: ignore[dict-item]
         preferences=[
-            models.Preference(identifier, identifier, 1),  # type: ignore[arg-type]
+            models.Preference(
+                identifier,
+                identifier,
+                1,
+            ),  # type: ignore[arg-type]
         ],
     )
     project = models.Project(
         id="P1",
         title="Project 1",
         requirements=[
-            models.ProjectRequirement(identifier, identifier),  # type: ignore[arg-type]
+            models.ProjectRequirement(
+                identifier,
+                identifier,
+            ),  # type: ignore[arg-type]
         ],
     )
-    fixed = models.FixedAssignment(identifier, identifier)  # type: ignore[arg-type]
+    fixed = models.FixedAssignment(
+        identifier,
+        identifier,
+    )  # type: ignore[arg-type]
 
     result = validation.validate_cohort(
         [student], [project], fixed_assignments=[fixed]
@@ -88,23 +99,35 @@ def test_invalid_reference_identifiers_are_reported_together(
 
 
 @pytest.mark.parametrize("identifier", [[], {}], ids=["list", "dictionary"])
-def test_unhashable_reference_identifiers_do_not_crash(identifier: object) -> None:
-    """Lists and dictionaries must be rejected before sets or lookups use them."""
+def test_unhashable_reference_identifiers_do_not_crash(
+    identifier: object,
+) -> None:
+    """Reject list and dictionary identifiers before using lookups."""
     student = models.Student(
         id="S1",
         display_name="Student 1",
         preferences=[
-            models.Preference(identifier, identifier, 1),  # type: ignore[arg-type]
+            models.Preference(
+                identifier,
+                identifier,
+                1,
+            ),  # type: ignore[arg-type]
         ],
     )
     project = models.Project(
         id="P1",
         title="Project 1",
         requirements=[
-            models.ProjectRequirement(identifier, identifier),  # type: ignore[arg-type]
+            models.ProjectRequirement(
+                identifier,
+                identifier,
+            ),  # type: ignore[arg-type]
         ],
     )
-    fixed = models.FixedAssignment(identifier, identifier)  # type: ignore[arg-type]
+    fixed = models.FixedAssignment(
+        identifier,
+        identifier,
+    )  # type: ignore[arg-type]
 
     result = validation.validate_cohort(
         [student], [project], fixed_assignments=[fixed]
@@ -176,7 +199,9 @@ def test_preference_must_belong_to_containing_student(parent_id: str) -> None:
     """Reject a different owner even if that student exists in the cohort."""
     students = [
         models.Student(
-            "S1", "Student 1", preferences=[models.Preference(parent_id, "P1", 1)]
+            "S1",
+            "Student 1",
+            preferences=[models.Preference(parent_id, "P1", 1)],
         ),
         models.Student("S2", "Student 2"),
     ]
@@ -197,13 +222,17 @@ def test_requirement_must_belong_to_containing_project(parent_id: str) -> None:
     """Reject a different owner even if that project exists in the catalogue."""
     projects = [
         models.Project(
-            "P1", "Project 1", requirements=[models.ProjectRequirement(parent_id, "py")]
+            "P1",
+            "Project 1",
+            requirements=[models.ProjectRequirement(parent_id, "py")],
         ),
         models.Project("P2", "Project 2"),
     ]
 
     result = validation.validate_cohort(
-        [models.Student("S1", "Student 1")], projects, [models.Skill("py", "Python")]
+        [models.Student("S1", "Student 1")],
+        projects,
+        [models.Skill("py", "Python")],
     )
 
     assert result.is_valid is False
@@ -213,11 +242,13 @@ def test_requirement_must_belong_to_containing_project(parent_id: str) -> None:
     assert result.infeasibility_reasons == []
 
 
-def test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique() -> None:
+def test_case_sensitive_ids_allow_duplicate_display_names() -> None:
     """Keep case-distinct records and their exact references separate."""
     students = [
         models.Student(
-            "S1", "Same name", skills={"py": 3},
+            "S1",
+            "Same name",
+            skills={"py": 3},
             preferences=[
                 models.Preference("S1", "P1", 1),
                 models.Preference("S1", "p1", 2),
@@ -225,7 +256,9 @@ def test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique() -
             ],
         ),
         models.Student(
-            "s1", "Same name", skills={"PY": 2},
+            "s1",
+            "Same name",
+            skills={"PY": 2},
             preferences=[
                 models.Preference("s1", "p1", 1),
                 models.Preference("s1", "P1", 2),
@@ -234,12 +267,26 @@ def test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique() -
         ),
     ]
     projects = [
-        models.Project("P1", "Same title", requirements=[models.ProjectRequirement("P1", "py")]),
-        models.Project("p1", "Same title", requirements=[models.ProjectRequirement("p1", "PY")]),
+        models.Project(
+            "P1",
+            "Same title",
+            requirements=[models.ProjectRequirement("P1", "py")],
+        ),
+        models.Project(
+            "p1",
+            "Same title",
+            requirements=[models.ProjectRequirement("p1", "PY")],
+        ),
         models.Project("P2", "Third project"),
     ]
-    skills = [models.Skill("py", "Python"), models.Skill("PY", "Advanced Python")]
-    fixed = [models.FixedAssignment("S1", "P1"), models.FixedAssignment("s1", "p1")]
+    skills = [
+        models.Skill("py", "Python"),
+        models.Skill("PY", "Advanced Python"),
+    ]
+    fixed = [
+        models.FixedAssignment("S1", "P1"),
+        models.FixedAssignment("s1", "p1"),
+    ]
 
     result = validation.validate_cohort(students, projects, skills, fixed)
 
@@ -251,8 +298,10 @@ def test_identifiers_are_case_sensitive_and_display_names_need_not_be_unique() -
     assert [skill.id for skill in skills] == ["py", "PY"]
 
 
-def test_identifier_may_be_numeric_text_and_reused_in_another_catalogue() -> None:
-    """Text '7' is valid; student, project, and skill IDs have separate scopes."""
+def test_identifier_may_be_numeric_text_and_reused_in_another_catalogue() -> (
+    None
+):
+    """Allow numeric text IDs in independent catalogue scopes."""
     result = validation.validate_cohort(
         [models.Student("7", "Student 7")],
         [models.Project("7", "Project 7")],
@@ -266,7 +315,9 @@ def test_identifier_may_be_numeric_text_and_reused_in_another_catalogue() -> Non
 def test_unmatched_reference_case_is_explained_without_changing_ids() -> None:
     """Do not guess the intended project, student, or skill in engine inputs."""
     student = models.Student(
-        "S1", "Student 1", skills={"PY": 3},
+        "S1",
+        "Student 1",
+        skills={"PY": 3},
         preferences=[models.Preference("S1", "p1", 1)],
     )
     project = models.Project(

@@ -96,7 +96,7 @@ def test_scenario_loading_and_optimization_trigger(
     assert load_res.status_code == 200
     assert b"Standard Cohort" in load_res.data
 
-    # Trigger optimization run (falls back to mock engine if solver unimplemented)
+    # Trigger a run, falling back to the mock if the solver is unfinished.
     run_res = client.post(
         "/runs/trigger",
         data={
@@ -176,7 +176,9 @@ def test_create_student_preference_validation(
     assert saved.preferences[0].project_id == "P1"
 
 
-def test_ambiguous_project_case_requires_exact_id(tmp_path: pathlib.Path) -> None:
+def test_ambiguous_project_case_requires_exact_id(
+    tmp_path: pathlib.Path,
+) -> None:
     """ID-08: Never choose between case-distinct IDs on the student's behalf."""
     client = _make_client(tmp_path, "test_ambiguous_project_case")
     project_repo = repositories.ProjectRepository()
@@ -201,7 +203,10 @@ def test_ambiguous_project_case_requires_exact_id(tmp_path: pathlib.Path) -> Non
     assert b"created successfully" in response.data
     saved = repositories.StudentRepository().get_by_id("S1")
     assert saved is not None
-    assert [pref.project_id for pref in saved.preferences] == ["ProjectA", "projecta"]
+    assert [pref.project_id for pref in saved.preferences] == [
+        "ProjectA",
+        "projecta",
+    ]
 
 
 @pytest.mark.parametrize("operation", ["create", "update"])
@@ -216,15 +221,20 @@ def test_repeated_preference_is_not_silently_saved(
     student_repo = repositories.StudentRepository()
     path = "/students/new"
     if operation == "update":
-        student_repo.save(models.Student(
-            "S1", "Original name", preferences=[models.Preference("S1", "P2", 1)]
-        ))
+        student_repo.save(
+            models.Student(
+                "S1",
+                "Original name",
+                preferences=[models.Preference("S1", "P2", 1)],
+            )
+        )
         path = "/students/S1/edit"
 
     response = client.post(
         path,
         data={
-            "id": "S1", "display_name": "Changed name",
+            "id": "S1",
+            "display_name": "Changed name",
             "preferences_text": preferences_text,
         },
         follow_redirects=True,
@@ -242,7 +252,10 @@ def test_repeated_preference_is_not_silently_saved(
 
 
 @pytest.mark.parametrize("operation", ["create", "update"])
-@pytest.mark.parametrize(("field", "value"), [("skill_py", "6"), ("skill_py", "bad"), ("skill_ghost", "3")])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("skill_py", "6"), ("skill_py", "bad"), ("skill_ghost", "3")],
+)
 def test_bad_student_skills_leave_saved_records_unchanged(
     tmp_path: pathlib.Path, operation: str, field: str, value: str
 ) -> None:
@@ -256,7 +269,8 @@ def test_bad_student_skills_leave_saved_records_unchanged(
         path = "/students/S1/edit"
 
     response = client.post(
-        path, data={"id": "S1", "display_name": "Changed", field: value},
+        path,
+        data={"id": "S1", "display_name": "Changed", field: value},
         follow_redirects=True,
     )
 
@@ -273,7 +287,9 @@ def test_bad_student_skills_leave_saved_records_unchanged(
 
 
 @pytest.mark.parametrize("operation", ["create", "update"])
-@pytest.mark.parametrize(("field", "value"), [("req_mand_py", "false"), ("req_level_ghost", "2")])
+@pytest.mark.parametrize(
+    ("field", "value"), [("req_mand_py", "false"), ("req_level_ghost", "2")]
+)
 def test_bad_project_skill_fields_leave_saved_records_unchanged(
     tmp_path: pathlib.Path, operation: str, field: str, value: str
 ) -> None:
@@ -284,11 +300,17 @@ def test_bad_project_skill_fields_leave_saved_records_unchanged(
     path = "/projects/new"
     original_requirements = [models.ProjectRequirement("P1", "py", 2, False)]
     if operation == "update":
-        project_repo.save(models.Project("P1", "Original", requirements=original_requirements))
+        project_repo.save(
+            models.Project("P1", "Original", requirements=original_requirements)
+        )
         path = "/projects/P1/edit"
     data = {
-        "id": "P1", "title": "Changed", "min_capacity": "0", "max_capacity": "2",
-        "req_level_py": "2", field: value,
+        "id": "P1",
+        "title": "Changed",
+        "min_capacity": "0",
+        "max_capacity": "2",
+        "req_level_py": "2",
+        field: value,
     }
 
     response = client.post(path, data=data, follow_redirects=True)
@@ -301,18 +323,26 @@ def test_bad_project_skill_fields_leave_saved_records_unchanged(
         assert saved is not None
         assert saved.title == "Original"
         assert saved.requirements == original_requirements
-    assert b"unknown skill" in response.data or b"Mandatory flag" in response.data
+    assert (
+        b"unknown skill" in response.data or b"Mandatory flag" in response.data
+    )
 
 
 @pytest.mark.parametrize(
     ("student_id", "project_id", "status"),
-    [("S1", "P1", "APPROVED"), ("S1", "P2", "APPROVED"), ("S2", "P1", "APPROVED"),
-     ("ghost", "P2", "APPROVED"), ("S2", "ghost", "APPROVED"), ("S2", "P2", "PENDING")],
+    [
+        ("S1", "P1", "APPROVED"),
+        ("S1", "P2", "APPROVED"),
+        ("S2", "P1", "APPROVED"),
+        ("ghost", "P2", "APPROVED"),
+        ("S2", "ghost", "APPROVED"),
+        ("S2", "P2", "PENDING"),
+    ],
 )
 def test_invalid_lock_form_preserves_existing_lock(
     tmp_path: pathlib.Path, student_id: str, project_id: str, status: str
 ) -> None:
-    """Duplicates, conflicts, unknown IDs, over-capacity locks, and bad statuses save nothing."""
+    """Preserve saved locks when a new lock submission is invalid."""
     client = _make_client(tmp_path, "test_lock_validation")
     repositories.StudentRepository().save(models.Student("S1", "Student 1"))
     repositories.StudentRepository().save(models.Student("S2", "Student 2"))
@@ -322,8 +352,13 @@ def test_invalid_lock_form_preserves_existing_lock(
     repositories.FixedAssignmentRepository().save(original)
 
     response = client.post(
-        "/fixed-assignments/new", follow_redirects=True,
-        data={"student_id": student_id, "project_id": project_id, "status": status},
+        "/fixed-assignments/new",
+        follow_redirects=True,
+        data={
+            "student_id": student_id,
+            "project_id": project_id,
+            "status": status,
+        },
     )
 
     assert response.status_code == 200
@@ -332,25 +367,41 @@ def test_invalid_lock_form_preserves_existing_lock(
 
 
 @pytest.mark.parametrize(
-    "settings", [{}, {"max_alternatives": "bad"}, {"max_alternatives": "0"},
-                 {"max_alternatives": "5"}, {"max_alternatives": "2", "primary_strategy": "UNKNOWN"}],
+    "settings",
+    [
+        {},
+        {"max_alternatives": "bad"},
+        {"max_alternatives": "0"},
+        {"max_alternatives": "5"},
+        {"max_alternatives": "2", "primary_strategy": "UNKNOWN"},
+    ],
 )
-def test_invalid_run_settings_do_not_start_a_mock_run(tmp_path: pathlib.Path, settings: dict[str, str]) -> None:
+def test_invalid_run_settings_do_not_start_a_mock_run(
+    tmp_path: pathlib.Path, settings: dict[str, str]
+) -> None:
+    """Reject invalid settings before persisting any mock run."""
     client = _make_client(tmp_path, "test_run_settings")
     client.post("/load-scenario/standard")
 
-    response = client.post("/runs/trigger", data=settings, follow_redirects=True)
+    response = client.post(
+        "/runs/trigger", data=settings, follow_redirects=True
+    )
 
     assert response.status_code == 200
     assert b"Optimization run completed" not in response.data
     assert repositories.RunRepository().list_runs() == []
 
 
-def test_invalid_cohort_is_recorded_without_mock_solutions(tmp_path: pathlib.Path) -> None:
+def test_invalid_cohort_is_recorded_without_mock_solutions(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Record invalid-cohort diagnostics without creating mock solutions."""
     client = _make_client(tmp_path, "test_rejected_cohort")
     repositories.ProjectRepository().save(models.Project("P1", "Project 1"))
 
-    response = client.post("/runs/trigger", data={"max_alternatives": "2"}, follow_redirects=True)
+    response = client.post(
+        "/runs/trigger", data={"max_alternatives": "2"}, follow_redirects=True
+    )
 
     assert response.status_code == 200
     runs = repositories.RunRepository().list_runs()
@@ -361,27 +412,48 @@ def test_invalid_cohort_is_recorded_without_mock_solutions(tmp_path: pathlib.Pat
     assert b"MockAssignmentEngine for demonstration" not in response.data
 
 
-@pytest.mark.parametrize("case", ["valid", "conflicting-lock", "forged-pair", "unknown-source"])
-def test_lock_and_rerun_validates_before_saving(tmp_path: pathlib.Path, case: str) -> None:
+@pytest.mark.parametrize(
+    "case", ["valid", "conflicting-lock", "forged-pair", "unknown-source"]
+)
+def test_lock_and_rerun_validates_before_saving(
+    tmp_path: pathlib.Path, case: str
+) -> None:
     """The alternative run entry point must enforce the same input checks."""
     client = _make_client(tmp_path, "test_validated_lock_rerun")
     for student_id in ["S1", "S2"]:
-        repositories.StudentRepository().save(models.Student(student_id, student_id))
+        repositories.StudentRepository().save(
+            models.Student(student_id, student_id)
+        )
     for project_id in ["P1", "P2"]:
-        repositories.ProjectRepository().save(models.Project(project_id, project_id))
+        repositories.ProjectRepository().save(
+            models.Project(project_id, project_id)
+        )
     source = models.Solution(
-        "source-solution", "source-run", 1, "PREFERENCE",
-        assignments=[models.Assignment("S1", "P2"), models.Assignment("S2", "P1")],
+        "source-solution",
+        "source-run",
+        1,
+        "PREFERENCE",
+        assignments=[
+            models.Assignment("S1", "P2"),
+            models.Assignment("S2", "P1"),
+        ],
     )
-    repositories.RunRepository().save_run(models.AssignmentRun("source-run", status="COMPLETED", solutions=[source]))
+    repositories.RunRepository().save_run(
+        models.AssignmentRun(
+            "source-run", status="COMPLETED", solutions=[source]
+        )
+    )
     if case == "conflicting-lock":
-        repositories.FixedAssignmentRepository().save(models.FixedAssignment("S1", "P1"))
+        repositories.FixedAssignmentRepository().save(
+            models.FixedAssignment("S1", "P1")
+        )
     source_id = "missing" if case == "unknown-source" else source.id
     project_id = "P1" if case == "forged-pair" else "P2"
 
     response = client.post(
         f"/solutions/{source_id}/lock-and-rerun",
-        data={"student_id": "S1", "project_id": project_id}, follow_redirects=True,
+        data={"student_id": "S1", "project_id": project_id},
+        follow_redirects=True,
     )
 
     assert response.status_code == 200
@@ -499,7 +571,9 @@ def test_create_skill_rejects_name_matching_padded_existing_name(
     repositories.SkillRepository().save(models.Skill("py", " Python "))
 
     response = client.post(
-        "/skills/new", data=_skill_form("other", "PYTHON"), follow_redirects=True
+        "/skills/new",
+        data=_skill_form("other", "PYTHON"),
+        follow_redirects=True,
     )
 
     assert b"Skill name &#39;PYTHON&#39; already exists." in response.data
@@ -727,7 +801,8 @@ def test_projects_crud_workflow(tmp_path: pathlib.Path) -> None:
     # 5. Student viewers cannot create, edit or delete projects
     client.post("/set-role", data={"role": "STUDENT"})
     client.post(
-        "/projects/new", data={**project_data, "id": "P3"},
+        "/projects/new",
+        data={**project_data, "id": "P3"},
         follow_redirects=True,
     )
     client.post("/projects/P1/delete", follow_redirects=True)
@@ -800,9 +875,7 @@ def test_compare_two_alternatives_of_a_run(tmp_path: pathlib.Path) -> None:
     )
     first = comparison.changed_assignments[0]
     student = repositories.StudentRepository().get_by_id(first["student_id"])
-    project = repositories.ProjectRepository().get_by_id(
-        first["project_b_id"]
-    )
+    project = repositories.ProjectRepository().get_by_id(first["project_b_id"])
     assert student is not None and project is not None
     assert student.display_name.encode() in res.data
     assert project.title.encode() in res.data
@@ -857,8 +930,7 @@ def test_compare_solutions_from_different_runs_warns(
     newer, older = repositories.RunRepository().list_runs()[:2]
 
     res = client.get(
-        f"/compare?sol1={older.solutions[0].id}"
-        f"&sol2={newer.solutions[0].id}"
+        f"/compare?sol1={older.solutions[0].id}&sol2={newer.solutions[0].id}"
     )
     assert res.status_code == 200
     assert b"different runs" in res.data

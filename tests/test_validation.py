@@ -2,9 +2,7 @@
 
 import pytest
 
-from app.domain import models
-from app.domain import validation
-
+from app.domain import models, validation
 
 # Each label makes the deliberately invalid input clear in pytest's output.
 INVALID_CAPACITIES = [

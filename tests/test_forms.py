@@ -116,12 +116,18 @@ def test_project_form_rejects_unsupported_mandatory_flags(flag: str) -> None:
     form = forms.ProjectForm(_form(req_mand_py=flag), SKILLS)
 
     assert form.to_project() is None
-    assert any("Mandatory flag" in error and "py" in error for error in form.errors)
+    assert any(
+        "Mandatory flag" in error and "py" in error for error in form.errors
+    )
 
 
-@pytest.mark.parametrize(("flag", "expected"), [("1", True), ("on", True), ("", False)])
-def test_project_form_parses_supported_checkbox_values(flag: str, expected: bool) -> None:
-    """SKILL-08: Checked encodings become True; an unchecked box becomes False."""
+@pytest.mark.parametrize(
+    ("flag", "expected"), [("1", True), ("on", True), ("", False)]
+)
+def test_project_form_parses_supported_checkbox_values(
+    flag: str, expected: bool
+) -> None:
+    """Parse supported checked and unchecked requirement flags."""
     form = forms.ProjectForm(_form(req_mand_py=flag), SKILLS)
 
     project = form.to_project()
@@ -130,7 +136,9 @@ def test_project_form_parses_supported_checkbox_values(flag: str, expected: bool
     assert project.requirements[0].is_mandatory is expected
 
 
-@pytest.mark.parametrize("level", ["-1", "6", "1.5", "2.0", "bad", "true", "inf"])
+@pytest.mark.parametrize(
+    "level", ["-1", "6", "1.5", "2.0", "bad", "true", "inf"]
+)
 def test_student_skill_form_rejects_invalid_levels(level: str) -> None:
     """SKILL-02: Form text must parse to a whole number between 1 and 5."""
     form = forms.StudentSkillsForm({"skill_py": level}, SKILLS)
@@ -140,7 +148,9 @@ def test_student_skill_form_rejects_invalid_levels(level: str) -> None:
 
 
 @pytest.mark.parametrize("omitted_level", ["0", "", " \t"])
-def test_student_skill_form_omits_zero_or_blank_levels(omitted_level: str) -> None:
+def test_student_skill_form_omits_zero_or_blank_levels(
+    omitted_level: str,
+) -> None:
     """SKILL-01/02: Zero and blank form values mean no recorded skill."""
     form = forms.StudentSkillsForm(
         {"skill_py": " 5 ", "skill_sql": omitted_level, "id": "S1"}, SKILLS
@@ -159,7 +169,7 @@ def test_student_skill_form_rejects_unknown_skill() -> None:
 
 
 def test_student_skill_form_collects_errors_and_can_be_rechecked() -> None:
-    """Return all form errors, then clear them when the user corrects the data."""
+    """Clear previous form errors after the submitted data is corrected."""
     data = {"skill_py": "bad", "skill_sql": "6"}
     form = forms.StudentSkillsForm(data, SKILLS)
 

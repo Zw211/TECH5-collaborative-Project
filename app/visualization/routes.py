@@ -5,9 +5,7 @@ triggering, multi-solution visual comparisons, and recommendations.
 """
 
 import collections
-import csv
 import dataclasses
-import io
 import re
 import sqlite3
 import uuid
@@ -15,17 +13,12 @@ from typing import Any
 
 import flask
 
-from app.contract import contract
-from app.contract import mocks
-from app.domain import models
-from app.domain import validation
-from app.engine import recommendations
-from app.engine import solvers
-from app.persistence import repositories
-from app.persistence import database
+from app.contract import contract, mocks
+from app.domain import models, validation
+from app.engine import recommendations, solvers
+from app.persistence import database, repositories
 from app.samples import demo_data
-from app.visualization import auth
-from app.visualization import forms
+from app.visualization import auth, forms
 
 web_bp = flask.Blueprint("visualization_web", __name__)
 
@@ -72,9 +65,12 @@ def dashboard() -> str:
 
     for project in projects:
         if type(project.max_capacity) is not int:
-            raise database.InvalidDatabaseRecords([
-                f"Project '{project.id}': saved maximum capacity must be a whole number."
-            ])
+            raise database.InvalidDatabaseRecords(
+                [
+                    f"Project '{project.id}': saved maximum capacity must "
+                    f"be a whole number."
+                ]
+            )
     total_capacity = sum(p.max_capacity for p in projects)
     latest_run = runs[0] if runs else None
 
@@ -126,23 +122,22 @@ def _check_valid_student_data(
     student_name: str,
     available_students: dict[str, str],
 ) -> bool:
-    """Checks if the student data is valid
+    """Check whether a student's ID and display name are available.
+
     Args:
         student_id: Target student identifier.
         student_name: Target student name.
         available_students: Map of existing students id and name.
-    Returns:
-        A list of invalid students.
-    """
-    
 
+    Returns:
+        True if neither the ID nor display name is already in use.
+    """
     valid = 1
 
     if student_id in available_students:
         valid = 0
     elif student_name in available_students.values():
         valid = 0
-
 
     return valid
 
@@ -176,7 +171,8 @@ def _parse_and_validate_preferences(
             resolved_id = token
         else:
             matching_ids = [
-                project_id for project_id in available_projects
+                project_id
+                for project_id in available_projects
                 if project_id.casefold() == token.casefold()
             ]
             if len(matching_ids) == 1:
@@ -213,11 +209,14 @@ def create_student() -> flask.Response:
     name = flask.request.form.get("display_name", "").strip() or s_id
 
     available_students = {
-        s.id: s.display_name for s in repositories.StudentRepository().list_all()
+        s.id: s.display_name
+        for s in repositories.StudentRepository().list_all()
     }
 
-    if not _check_valid_student_data(s_id,name, available_students):
-        flask.flash(f"Student ID: {s_id}, or Name: {name} already exists.", "danger")
+    if not _check_valid_student_data(s_id, name, available_students):
+        flask.flash(
+            f"Student ID: {s_id}, or Name: {name} already exists.", "danger"
+        )
         return flask.redirect(
             flask.url_for("visualization_web.new_student_form")
         )
@@ -229,13 +228,16 @@ def create_student() -> flask.Response:
         )
 
     skill_form = forms.StudentSkillsForm(
-        flask.request.form, [skill.id for skill in repositories.SkillRepository().list_all()]
+        flask.request.form,
+        [skill.id for skill in repositories.SkillRepository().list_all()],
     )
     skills_dict = skill_form.to_skills()
     if skills_dict is None:
         for error in skill_form.errors:
             flask.flash(error, "danger")
-        return flask.redirect(flask.url_for("visualization_web.new_student_form"))
+        return flask.redirect(
+            flask.url_for("visualization_web.new_student_form")
+        )
 
     # Parse and validate preferences against catalog
     available_projects = {
@@ -307,19 +309,20 @@ def update_student(student_id: str) -> flask.Response:
         flask.flash("Permission denied for current role.", "danger")
         return flask.redirect(flask.url_for("visualization_web.list_students"))
 
-    name = (
-        flask.request.form.get("display_name", "").strip() or student_id
-    )
+    name = flask.request.form.get("display_name", "").strip() or student_id
 
     skill_form = forms.StudentSkillsForm(
-        flask.request.form, [skill.id for skill in repositories.SkillRepository().list_all()]
+        flask.request.form,
+        [skill.id for skill in repositories.SkillRepository().list_all()],
     )
     skills_dict = skill_form.to_skills()
     if skills_dict is None:
         for error in skill_form.errors:
             flask.flash(error, "danger")
         return flask.redirect(
-            flask.url_for("visualization_web.edit_student_form", student_id=student_id)
+            flask.url_for(
+                "visualization_web.edit_student_form", student_id=student_id
+            )
         )
 
     # Parse and validate preferences against catalog
@@ -589,7 +592,9 @@ def _validate_skill_input(
 
     if not norm_name:
         errors.append("Skill name cannot be empty.")
-    elif norm_name.casefold() in {s.name.strip().casefold() for s in existing_skills}:
+    elif norm_name.casefold() in {
+        s.name.strip().casefold() for s in existing_skills
+    }:
         errors.append(f"Skill name '{norm_name}' already exists.")
 
     return norm_id, errors
@@ -614,8 +619,7 @@ def _compute_skill_usage(
         a proficiency level above zero).
     """
     usage: dict[str, dict[str, Any]] = {
-        s.id: {"projects": [], "mandatory": [], "students": 0}
-        for s in skills
+        s.id: {"projects": [], "mandatory": [], "students": 0} for s in skills
     }
     for project in projects:
         for req in project.requirements:
@@ -665,9 +669,7 @@ def create_skill() -> flask.Response:
         return flask.redirect(target)
 
     try:
-        repo.save(
-            models.Skill(id=skill_id, name=name, description=description)
-        )
+        repo.save(models.Skill(id=skill_id, name=name, description=description))
     except sqlite3.IntegrityError as exc:
         flask.flash(
             f"Database constraint error while saving skill: {exc}",
@@ -772,7 +774,10 @@ def create_fixed_assignment() -> flask.Response:
     result = validation.validate_fixed_assignments(
         fixed_repo.list_all() + [new_lock],
         {student.id for student in repositories.StudentRepository().list_all()},
-        {project.id: project.max_capacity for project in repositories.ProjectRepository().list_all()},
+        {
+            project.id: project.max_capacity
+            for project in repositories.ProjectRepository().list_all()
+        },
     )
     if not result.is_valid:
         for error in result.errors:
@@ -828,17 +833,25 @@ def load_scenario(scenario_name: str) -> flask.Response:
         return flask.redirect(flask.url_for("visualization_web.scenarios_page"))
 
     input_result = validation.validate_cohort(
-        data["students"], data["projects"], data["skills"], data.get("fixed_assignments", [])
+        data["students"],
+        data["projects"],
+        data["skills"],
+        data.get("fixed_assignments", []),
     )
     structural_errors = [
-        error for error in input_result.errors if error not in input_result.infeasibility_reasons
+        error
+        for error in input_result.errors
+        if error not in input_result.infeasibility_reasons
     ]
     if structural_errors:
         for error in structural_errors:
             flask.flash(error, "danger")
         return flask.redirect(flask.url_for("visualization_web.scenarios_page"))
     repositories.CohortRepository().replace(
-        data["students"], data["projects"], data["skills"], data.get("fixed_assignments", [])
+        data["students"],
+        data["projects"],
+        data["skills"],
+        data.get("fixed_assignments", []),
     )
 
     flask.flash(
@@ -862,23 +875,34 @@ def clear_data() -> flask.Response:
 # -----------------------------------------------------------------------------
 
 
-def _execute_validated_request(req: contract.RunRequest) -> models.AssignmentRun:
-    """Validates a Week 1 request before invoking the engine or explicit demo mock."""
+def _execute_validated_request(
+    req: contract.RunRequest,
+) -> models.AssignmentRun:
+    """Validate input before executing the engine or mock demo."""
     engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
     val_outcome = engine.validate_inputs(req)
     for warning_msg in val_outcome.warnings:
         flask.flash(f"Warning: {warning_msg}", "warning")
     if not val_outcome.is_valid or not val_outcome.is_feasible:
         structural_errors = [
-            error for error in val_outcome.errors if error not in val_outcome.infeasibility_reasons
+            error
+            for error in val_outcome.errors
+            if error not in val_outcome.infeasibility_reasons
         ]
         run = models.AssignmentRun(
             id=str(uuid.uuid4()),
             status="INVALID_INPUT" if structural_errors else "INFEASIBLE",
-            configuration={"primary_strategy": req.strategy_key, "max_alternatives": req.max_alternatives},
+            configuration={
+                "primary_strategy": req.strategy_key,
+                "max_alternatives": req.max_alternatives,
+            },
             diagnostics={
-                "message": "Run rejected by input validation; no assignments were generated.",
-                "errors": list(val_outcome.errors), "warnings": list(val_outcome.warnings),
+                "message": (
+                    "Run rejected by input validation; no assignments were "
+                    "generated."
+                ),
+                "errors": list(val_outcome.errors),
+                "warnings": list(val_outcome.warnings),
                 "reasons": list(val_outcome.infeasibility_reasons),
             },
         )
@@ -893,14 +917,16 @@ def _execute_validated_request(req: contract.RunRequest) -> models.AssignmentRun
             "info",
         )
         with database.db_manager.transaction() as transaction_db:
-            mock_engine = mocks.MockAssignmentEngine(repositories.RunRepository(transaction_db))
+            mock_engine = mocks.MockAssignmentEngine(
+                repositories.RunRepository(transaction_db)
+            )
             run = mock_engine.execute_run(req)
     return run
 
 
 @web_bp.post("/runs/trigger")
 def trigger_run() -> flask.Response:
-    """Validates current inputs before an engine run or Week 1 mock demonstration."""
+    """Validate saved input before starting an engine or mock run."""
     if not auth.can_trigger_optimization():
         flask.flash("Permission denied for current role.", "danger")
         return flask.redirect(flask.url_for("visualization_web.dashboard"))
@@ -918,7 +944,8 @@ def trigger_run() -> flask.Response:
         projects=repositories.ProjectRepository().list_all(),
         skills=repositories.SkillRepository().list_all(),
         fixed_assignments=repositories.FixedAssignmentRepository().list_all(),
-        strategy_key=strat, max_alternatives=max_alts,
+        strategy_key=strat,
+        max_alternatives=max_alts,
     )
     run = _execute_validated_request(req)
 
@@ -930,7 +957,8 @@ def trigger_run() -> flask.Response:
         )
     elif run.status == "INFEASIBLE":
         flask.flash(
-            "The stated hard constraints cannot all be satisfied. Inspect diagnostics below.",
+            "The stated hard constraints cannot all be satisfied. Inspect "
+            "diagnostics below.",
             "warning",
         )
     else:
@@ -1002,11 +1030,25 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
             )
         )
 
-    if not any(assignment.student_id == student_id and assignment.project_id == project_id for assignment in source.assignments):
-        flask.flash("That student/project pair is not in the source solution; no lock was changed.", "danger")
-        return flask.redirect(flask.url_for("visualization_web.view_solution", solution_id=solution_id))
+    if not any(
+        assignment.student_id == student_id
+        and assignment.project_id == project_id
+        for assignment in source.assignments
+    ):
+        flask.flash(
+            "That student/project pair is not in the source solution; no "
+            "lock was changed.",
+            "danger",
+        )
+        return flask.redirect(
+            flask.url_for(
+                "visualization_web.view_solution", solution_id=solution_id
+            )
+        )
     new_lock = models.FixedAssignment(
-        student_id, project_id, reason=f"Locked interactively from Solution {solution_id[:8]}."
+        student_id,
+        project_id,
+        reason=f"Locked interactively from Solution {solution_id[:8]}.",
     )
 
     # Immediately trigger rerun via Component B (Assignment Engine)
@@ -1026,7 +1068,11 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
     if not outcome.is_valid or not outcome.is_feasible:
         for error in outcome.errors:
             flask.flash(error, "danger")
-        return flask.redirect(flask.url_for("visualization_web.view_solution", solution_id=solution_id))
+        return flask.redirect(
+            flask.url_for(
+                "visualization_web.view_solution", solution_id=solution_id
+            )
+        )
     new_run = _execute_validated_request(req)
 
     flask.flash(
@@ -1038,12 +1084,14 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
         flask.url_for("visualization_web.view_run", run_id=new_run.id)
     )
 
+
 @web_bp.post("/clear-solutions")
 def clear_solutions() -> flask.Response:
     """Clears all solutions in the current run."""
     repositories.RunRepository().clear_all_current_solutions()
     flask.flash("All solutions cleared.", "info")
     return flask.redirect(flask.url_for("visualization_web.dashboard"))
+
 
 # -----------------------------------------------------------------------------
 # Comparison & Recommendations

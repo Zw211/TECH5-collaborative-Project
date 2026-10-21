@@ -2,8 +2,7 @@
 
 import pytest
 
-from app.domain import models
-from app.domain import validation
+from app.domain import models, validation
 
 
 def _projects(count: int = 3) -> list[models.Project]:
@@ -28,7 +27,8 @@ def test_short_preference_list_warns(ranked_count: int) -> None:
     assert result.is_valid is True
     assert result.errors == []
     assert any(
-        "S1" in warning and f"ranked {ranked_count}" in warning
+        "S1" in warning
+        and f"ranked {ranked_count}" in warning
         and "at least 3" in warning
         for warning in result.warnings
     ), result.warnings
@@ -37,9 +37,10 @@ def test_short_preference_list_warns(ranked_count: int) -> None:
 
 @pytest.mark.parametrize("project_count", [1, 2])
 def test_small_project_catalogue_is_explained(project_count: int) -> None:
-    """PREF-01: Explain why three choices are impossible in a small catalogue."""
+    """Explain when too few projects prevent three ranked choices."""
     student = models.Student(
-        "S1", "Student 1",
+        "S1",
+        "Student 1",
         preferences=[
             models.Preference("S1", f"P{rank}", rank)
             for rank in range(1, project_count + 1)
@@ -73,10 +74,13 @@ def test_no_preferences_warns_about_unranked_assignment() -> None:
 
 
 @pytest.mark.parametrize("project_count", [3, 4])
-def test_three_or_more_valid_preferences_need_no_warning(project_count: int) -> None:
-    """PREF-01: Complete lists are accepted; more than three choices are allowed."""
+def test_three_or_more_valid_preferences_need_no_warning(
+    project_count: int,
+) -> None:
+    """Accept complete lists, including more than three choices."""
     student = models.Student(
-        "S1", "Student 1",
+        "S1",
+        "Student 1",
         preferences=[
             models.Preference("S1", f"P{rank}", rank)
             for rank in range(1, project_count + 1)
@@ -92,9 +96,10 @@ def test_three_or_more_valid_preferences_need_no_warning(project_count: int) -> 
 
 @pytest.mark.parametrize("last_project", ["P1", "P99"])
 def test_bad_entries_do_not_count_as_three_choices(last_project: str) -> None:
-    """PREF-01/03/08: Count distinct known projects, not duplicate or unknown IDs."""
+    """Count distinct known choices instead of malformed entries."""
     student = models.Student(
-        "S1", "Student 1",
+        "S1",
+        "Student 1",
         preferences=[
             models.Preference("S1", "P1", 1),
             models.Preference("S1", "P2", 2),
@@ -105,13 +110,16 @@ def test_bad_entries_do_not_count_as_three_choices(last_project: str) -> None:
     result = validation.validate_cohort([student], _projects())
 
     assert result.is_valid is False
-    assert any("S1" in warning and "ranked 2" in warning for warning in result.warnings)
+    assert any(
+        "S1" in warning and "ranked 2" in warning for warning in result.warnings
+    )
 
 
 def test_repeated_project_is_rejected() -> None:
-    """PREF-03: Two positions cannot refer to the same project for one student."""
+    """Reject repeated projects within one student's preferences."""
     preferences = [
-        models.Preference("S1", "P1", 1), models.Preference("S1", "P1", 2)
+        models.Preference("S1", "P1", 1),
+        models.Preference("S1", "P1", 2),
     ]
     student = models.Student("S1", "Student 1", preferences=preferences)
 
@@ -128,11 +136,13 @@ def test_repeated_project_is_rejected() -> None:
 
 @pytest.mark.parametrize("rank", [1, 2])
 def test_tied_ranks_within_one_student_are_rejected(rank: int) -> None:
-    """PREF-04: Reject ties until the application can store them consistently."""
+    """Reject preference ties that the schema cannot represent."""
     student = models.Student(
-        "S1", "Student 1",
+        "S1",
+        "Student 1",
         preferences=[
-            models.Preference("S1", "P1", rank), models.Preference("S1", "P2", rank)
+            models.Preference("S1", "P1", rank),
+            models.Preference("S1", "P2", rank),
         ],
     )
 
@@ -150,14 +160,17 @@ def test_students_can_compete_for_the_same_first_choice() -> None:
     """PREF-05: Demand exceeding one project's places is not an input error."""
     students = []
     for student_id in ["S1", "S2"]:
-        students.append(models.Student(
-            student_id, student_id,
-            preferences=[
-                models.Preference(student_id, "P1", 1),
-                models.Preference(student_id, "P2", 2),
-                models.Preference(student_id, "P3", 3),
-            ],
-        ))
+        students.append(
+            models.Student(
+                student_id,
+                student_id,
+                preferences=[
+                    models.Preference(student_id, "P1", 1),
+                    models.Preference(student_id, "P2", 2),
+                    models.Preference(student_id, "P3", 3),
+                ],
+            )
+        )
     projects = _projects()
     projects[0].max_capacity = 1
 
@@ -190,10 +203,17 @@ def test_students_can_compete_for_the_same_first_choice() -> None:
     ],
 )
 def test_preference_rank_must_be_a_positive_integer(rank: object) -> None:
-    """PREF-06: Reject bad values before comparing ranks or adding them to sets."""
+    """Reject invalid ranks before comparisons or set operations."""
     student = models.Student(
-        "S1", "Student 1",
-        preferences=[models.Preference("S1", "P1", rank)],  # type: ignore[arg-type]
+        "S1",
+        "Student 1",
+        preferences=[
+            models.Preference(
+                "S1",
+                "P1",
+                rank,
+            )
+        ],  # type: ignore[arg-type]
     )
 
     result = validation.validate_cohort([student], _projects())
@@ -208,7 +228,8 @@ def test_preference_rank_must_be_a_positive_integer(rank: object) -> None:
 def test_multiple_preference_errors_are_reported_together() -> None:
     """PREF-03/04/06/08: A bad rank does not hide other preference errors."""
     student = models.Student(
-        "S1", "Student 1",
+        "S1",
+        "Student 1",
         preferences=[
             models.Preference("S1", "P1", []),  # type: ignore[arg-type]
             models.Preference("S1", "P2", 1),
@@ -222,15 +243,17 @@ def test_multiple_preference_errors_are_reported_together() -> None:
     assert result.is_valid is False
     assert len(result.errors) == 4
     for message in [
-        "positive whole number", "project 'P2' more than once",
-        "rank 1 more than once", "unknown project 'P99'",
+        "positive whole number",
+        "project 'P2' more than once",
+        "rank 1 more than once",
+        "unknown project 'P99'",
     ]:
         assert any(message in error for error in result.errors), result.errors
 
 
 @pytest.mark.parametrize("ranks", [[1, 3, 7], [2], [2, 3, 4], [1, 2, 10**12]])
 def test_rank_gaps_are_rejected_without_renumbering(ranks: list[int]) -> None:
-    """PREF-07: Require positions 1 through N, including for very large ranks."""
+    """Require consecutive ranks without changing submitted values."""
     preferences = [
         models.Preference("S1", f"P{number}", rank)
         for number, rank in enumerate(ranks, start=1)
@@ -271,5 +294,8 @@ def test_unknown_preference_project_identifies_student_and_project() -> None:
     result = validation.validate_cohort([student], _projects())
 
     assert result.is_valid is False
-    assert any("S1" in error and "unknown project 'P99'" in error for error in result.errors)
+    assert any(
+        "S1" in error and "unknown project 'P99'" in error
+        for error in result.errors
+    )
     assert student.preferences[0].project_id == "P99"

@@ -6,19 +6,28 @@ can be unit tested without a web request or a database.
 
 from collections.abc import Iterable, Mapping
 
-from app.domain import models
-from app.domain import validation
+from app.domain import models, validation
 
 
 class RunSettingsForm:
     """Parses dashboard settings and reuses the engine's validation rules."""
 
     def __init__(self, form: Mapping[str, str]) -> None:
+        """Initialize the submitted dashboard fields.
+
+        Args:
+            form: Submitted strategy and alternative-count fields.
+        """
         self._form = form
         self.errors: list[str] = []
 
     def to_settings(self) -> tuple[str, int] | None:
-        """Returns (strategy, count), or None with messages for invalid fields."""
+        """Return parsed settings, or None with validation errors.
+
+        Returns:
+            A strategy key and alternative count, or None when invalid.
+            Invalid fields are recorded in ``errors`` on every call.
+        """
         strategy = self._form.get("primary_strategy", "PREFERENCE")
         raw_count = self._form.get("max_alternatives", "").strip()
         try:
@@ -33,23 +42,38 @@ class RunSettingsForm:
 
 
 class StudentSkillsForm:
-    """Parses student skill fields and collects errors before a student is saved."""
+    """Parse student skill fields before saving a student."""
 
-    def __init__(self, form: Mapping[str, str], skill_ids: Iterable[str]) -> None:
+    def __init__(
+        self, form: Mapping[str, str], skill_ids: Iterable[str]
+    ) -> None:
+        """Initialize submitted fields and the allowed skill catalogue.
+
+        Args:
+            form: Submitted student skill fields.
+            skill_ids: Identifiers of skills accepted by the form.
+        """
         self._form = form
         self._skill_ids = set(skill_ids)
         self.errors: list[str] = []
 
     def to_skills(self) -> dict[str, int] | None:
-        """Returns parsed skills, or None on errors; blank/zero means omitted."""
+        """Return parsed skills, omitting blank and zero values.
+
+        Returns:
+            Skill IDs mapped to integer levels, or None when invalid.
+            Each call replaces ``errors`` with the current diagnostics.
+        """
         self.errors = []
         skills: dict[str, int] = {}
         for field, value in self._form.items():
             if not field.startswith("skill_"):
                 continue
-            skill_id = field[len("skill_"):]
+            skill_id = field[len("skill_") :]
             if skill_id not in self._skill_ids:
-                self.errors.append(f"Student profile references unknown skill '{skill_id}'.")
+                self.errors.append(
+                    f"Student profile references unknown skill '{skill_id}'."
+                )
                 continue
             raw = value.strip()
             if not raw:
@@ -57,12 +81,16 @@ class StudentSkillsForm:
             try:
                 level = int(raw)
             except ValueError:
-                self.errors.append(f"Skill '{skill_id}': level must be a whole number.")
+                self.errors.append(
+                    f"Skill '{skill_id}': level must be a whole number."
+                )
                 continue
             if level == 0:
                 continue
             if not 1 <= level <= 5:
-                self.errors.append(f"Skill '{skill_id}': level must be between 1 and 5.")
+                self.errors.append(
+                    f"Skill '{skill_id}': level must be between 1 and 5."
+                )
                 continue
             skills[skill_id] = level
 
@@ -190,22 +218,25 @@ class ProjectForm:
         unknown_skill_ids: set[str] = set()
         for field in self._form:
             if field.startswith("req_level_"):
-                skill_id = field[len("req_level_"):]
+                skill_id = field[len("req_level_") :]
             elif field.startswith("req_mand_"):
-                skill_id = field[len("req_mand_"):]
+                skill_id = field[len("req_mand_") :]
             else:
                 continue
             if skill_id not in self._skill_ids:
                 unknown_skill_ids.add(skill_id)
         for skill_id in sorted(unknown_skill_ids):
-            self.errors.append(f"Project requirement references unknown skill '{skill_id}'.")
+            self.errors.append(
+                f"Project requirement references unknown skill '{skill_id}'."
+            )
 
         for skill_id in self._skill_ids:
             raw = self._field(f"req_level_{skill_id}").strip() or "0"
             raw_mandatory = self._field(f"req_mand_{skill_id}").strip()
             if raw_mandatory not in ("", "1", "on"):
                 self.errors.append(
-                    f"Mandatory flag for skill '{skill_id}' must be an unchecked "
+                    f"Mandatory flag for skill '{skill_id}' must be an "
+                    f"unchecked "
                     "or checked box (empty, '1', or 'on')."
                 )
                 continue

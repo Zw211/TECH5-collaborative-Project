@@ -50,7 +50,9 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
                 is_valid=True,
                 is_feasible=False,
                 errors=[],
-                warnings=["Mock engine: Empty student cohort or project catalog."],
+                warnings=[
+                    "Mock engine: Empty student cohort or project catalog."
+                ],
                 infeasibility_reasons=["Cohort or project list is empty."],
             )
 
@@ -77,10 +79,8 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
             infeasibility_reasons=[],
         )
 
-    def execute_run(
-        self, request: contract.RunRequest
-    ) -> models.AssignmentRun:
-        """Generates synthetic multi-alternative solutions and persists them.
+    def execute_run(self, request: contract.RunRequest) -> models.AssignmentRun:
+        """Execute assignments and persist the resulting run.
 
         Args:
             request: The run request containing students, projects, etc.
@@ -94,7 +94,9 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
         if not val_outcome.is_feasible:
             run = models.AssignmentRun(
                 id=run_id,
-                created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                created_at=datetime.datetime.now(
+                    datetime.timezone.utc
+                ).isoformat(),
                 status=contract.RunStatus.INFEASIBLE.value,
                 configuration={
                     "max_alternatives": request.max_alternatives,
@@ -125,7 +127,9 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
             stud_repo.save(stud)
 
         if request.fixed_assignments:
-            fixed_repo = repositories.FixedAssignmentRepository(self.run_repo.db)
+            fixed_repo = repositories.FixedAssignmentRepository(
+                self.run_repo.db
+            )
             for fa in request.fixed_assignments:
                 fixed_repo.save(fa)
 
@@ -201,9 +205,7 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
                 sum(a.skill_fit_score for a in asgs) / float(len(asgs)), 2
             )
             ranks = [
-                a.preference_rank
-                for a in asgs
-                if a.preference_rank is not None
+                a.preference_rank for a in asgs if a.preference_rank is not None
             ]
             mean_rank = (
                 round(sum(ranks) / float(len(ranks)), 2) if ranks else 1.0
@@ -236,7 +238,9 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
                 },
                 "capacity": {
                     "total_assigned": len(asgs),
-                    "total_capacity": sum(p.max_capacity for p in request.projects),
+                    "total_capacity": sum(
+                        p.max_capacity for p in request.projects
+                    ),
                     "overall_utilization_pct": round(
                         len(asgs)
                         / float(sum(p.max_capacity for p in request.projects))
@@ -249,7 +253,11 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
                             "min_capacity": p.min_capacity,
                             "max_capacity": p.max_capacity,
                             "utilization_pct": round(
-                                (proj_counts[p.id] / float(p.max_capacity) * 100.0)
+                                (
+                                    proj_counts[p.id]
+                                    / float(p.max_capacity)
+                                    * 100.0
+                                )
                                 if p.max_capacity > 0
                                 else 0.0,
                                 1,
@@ -439,9 +447,7 @@ class MockAssignmentEngine(contract.AssignmentEngineContract):
             rank_improved_count=rank_improved,
             rank_worsened_count=rank_worsened,
             delta_metrics=delta_metrics,
-            delta_mean_skill_fit=delta_metrics.get(
-                "mean_skill_fit_delta", 0.0
-            ),
+            delta_mean_skill_fit=delta_metrics.get("mean_skill_fit_delta", 0.0),
             delta_mean_rank=delta_metrics.get("mean_rank_delta", 0.0),
             trade_off_summary=[
                 f"{len(changed)} student(s) reallocated across alternatives."

@@ -10,7 +10,6 @@ from typing import Any
 
 from app.domain import models
 
-
 FIXED_ASSIGNMENT_STATUSES = ("APPROVED", "MANDATORY", "CONDITIONAL")
 RUN_STRATEGIES = ("PREFERENCE", "SKILL_FIT", "BALANCED")
 MAX_ALTERNATIVES = 4
@@ -75,46 +74,70 @@ def _validate_identifiers(
     skills: list[models.Skill],
     fixed_assignments: list[models.FixedAssignment],
 ) -> list[str]:
-    """Checks catalogue IDs, reference IDs, and ownership without changing data."""
+    """Check catalogue IDs, reference IDs, and record ownership."""
     errors: list[str] = []
     student_ids: set[str] = set()
     for index, student in enumerate(students, start=1):
-        valid_student_id = _validate_identifier(student.id, f"Student #{index}", errors)
+        valid_student_id = _validate_identifier(
+            student.id, f"Student #{index}", errors
+        )
         if valid_student_id:
             if student.id in student_ids:
-                errors.append(f"Duplicate student identifier detected: '{student.id}'.")
+                errors.append(
+                    f"Duplicate student identifier detected: '{student.id}'."
+                )
             student_ids.add(student.id)
 
         for pref_index, pref in enumerate(student.preferences, start=1):
             field = f"Student '{student.id}' preference #{pref_index}"
-            valid_owner = _validate_identifier(pref.student_id, f"{field} student", errors)
+            valid_owner = _validate_identifier(
+                pref.student_id, f"{field} student", errors
+            )
             _validate_identifier(pref.project_id, f"{field} project", errors)
-            if valid_student_id and valid_owner and pref.student_id != student.id:
+            if (
+                valid_student_id
+                and valid_owner
+                and pref.student_id != student.id
+            ):
                 errors.append(
                     f"Preference in student '{student.id}' references student "
-                    f"'{pref.student_id}'. It must belong to the containing student. "
+                    f"'{pref.student_id}'. It must belong to the "
+                    f"containing student. "
                     "Student IDs are case-sensitive."
                 )
 
         for skill_id in student.skills:
-            _validate_identifier(skill_id, f"Student '{student.id}' skill", errors)
+            _validate_identifier(
+                skill_id, f"Student '{student.id}' skill", errors
+            )
 
     project_ids: set[str] = set()
     for index, project in enumerate(projects, start=1):
-        valid_project_id = _validate_identifier(project.id, f"Project #{index}", errors)
+        valid_project_id = _validate_identifier(
+            project.id, f"Project #{index}", errors
+        )
         if valid_project_id:
             if project.id in project_ids:
-                errors.append(f"Duplicate project identifier detected: '{project.id}'.")
+                errors.append(
+                    f"Duplicate project identifier detected: '{project.id}'."
+                )
             project_ids.add(project.id)
 
         for req_index, req in enumerate(project.requirements, start=1):
             field = f"Project '{project.id}' requirement #{req_index}"
-            valid_owner = _validate_identifier(req.project_id, f"{field} project", errors)
+            valid_owner = _validate_identifier(
+                req.project_id, f"{field} project", errors
+            )
             _validate_identifier(req.skill_id, f"{field} skill", errors)
-            if valid_project_id and valid_owner and req.project_id != project.id:
+            if (
+                valid_project_id
+                and valid_owner
+                and req.project_id != project.id
+            ):
                 errors.append(
                     f"Requirement in project '{project.id}' references project "
-                    f"'{req.project_id}'. It must belong to the containing project. "
+                    f"'{req.project_id}'. It must belong to the containing "
+                    f"project. "
                     "Project IDs are case-sensitive."
                 )
 
@@ -122,7 +145,9 @@ def _validate_identifiers(
     for index, skill in enumerate(skills, start=1):
         if _validate_identifier(skill.id, f"Skill #{index}", errors):
             if skill.id in skill_ids:
-                errors.append(f"Duplicate skill identifier detected: '{skill.id}'.")
+                errors.append(
+                    f"Duplicate skill identifier detected: '{skill.id}'."
+                )
             skill_ids.add(skill.id)
 
     for index, fixed in enumerate(fixed_assignments, start=1):
@@ -159,7 +184,7 @@ def _validate_preferences(
     project_ids: set[str],
     result: ValidationResult,
 ) -> None:
-    """Adds preference errors and warnings without changing submitted choices."""
+    """Report preference errors and warnings without changing choices."""
     errors_before = len(result.errors)
     seen_projects: set[str] = set()
     seen_ranks: set[int] = set()
@@ -189,7 +214,8 @@ def _validate_preferences(
         if pref.rank in seen_ranks:
             result.errors.append(
                 f"Student '{student.id}' uses rank {pref.rank} more than once. "
-                "Give each project a different rank; tied ranks are not supported."
+                "Give each project a different rank; tied ranks are not "
+                "supported."
             )
         seen_ranks.add(pref.rank)
         if pref.project_id in project_ids:
@@ -214,7 +240,8 @@ def _validate_preferences(
         if seen_ranks != expected_ranks:
             result.errors.append(
                 f"Student '{student.id}': preference ranks must start at 1 "
-                f"and continue without gaps through {len(student.preferences)}. "
+                f"and continue without gaps through "
+                f"{len(student.preferences)}. "
                 "Correct the submitted ranks; they have not been renumbered."
             )
 
@@ -232,10 +259,11 @@ def _validate_skill_data(
     result: ValidationResult,
 ) -> None:
     """Collects skill errors before mandatory matching uses the data."""
-    defined_skill_ids = None if skills is None else {skill.id for skill in skills}
-    has_skill_references = (
-        any(student.skills for student in students)
-        or any(project.requirements for project in projects)
+    defined_skill_ids = (
+        None if skills is None else {skill.id for skill in skills}
+    )
+    has_skill_references = any(student.skills for student in students) or any(
+        project.requirements for project in projects
     )
     if skills is None and has_skill_references:
         result.warnings.append(
@@ -247,7 +275,10 @@ def _validate_skill_data(
         for skill_id, level in student.skills.items():
             field = f"Student '{student.id}', skill '{skill_id}'"
             _validate_skill_level(level, field, result.errors)
-            if defined_skill_ids is not None and skill_id not in defined_skill_ids:
+            if (
+                defined_skill_ids is not None
+                and skill_id not in defined_skill_ids
+            ):
                 result.errors.append(
                     f"Student '{student.id}' lists unknown skill '{skill_id}'. "
                     "Skill IDs are case-sensitive; use an exact catalog ID."
@@ -258,20 +289,30 @@ def _validate_skill_data(
         for requirement in project.requirements:
             skill_id = requirement.skill_id
             field = f"Project '{project.id}', skill '{skill_id}'"
-            _validate_skill_level(requirement.minimum_level, field, result.errors)
+            _validate_skill_level(
+                requirement.minimum_level, field, result.errors
+            )
             if type(requirement.is_mandatory) is not bool:
-                result.errors.append(f"{field}: mandatory flag must be True or False.")
+                result.errors.append(
+                    f"{field}: mandatory flag must be True or False."
+                )
             if skill_id in seen_skills:
                 result.errors.append(
-                    f"Project '{project.id}' lists requirement skill '{skill_id}' "
+                    f"Project '{project.id}' lists requirement skill "
+                    f"'{skill_id}' "
                     "more than once. Correct the duplicate requirements."
                 )
             seen_skills.add(skill_id)
-            if defined_skill_ids is not None and skill_id not in defined_skill_ids:
+            if (
+                defined_skill_ids is not None
+                and skill_id not in defined_skill_ids
+            ):
                 result.errors.append(
-                    f"Project '{project.id}' demands unknown skill '{skill_id}'. "
+                    f"Project '{project.id}' demands unknown skill "
+                    f"'{skill_id}'. "
                     "Skill IDs are case-sensitive; use an exact catalog ID."
                 )
+
 
 def validate_fixed_assignments(
     fixed_assignments: list[models.FixedAssignment],
@@ -282,12 +323,21 @@ def validate_fixed_assignments(
 
     All supported statuses denote active locks, matching the existing form.
     Duplicate or conflicting rows are rejected before capacity is counted.
+
+    Args:
+        fixed_assignments: Submitted administrative locks.
+        student_ids: Identifiers of available students.
+        project_capacities: Project IDs mapped to maximum student counts.
+
+    Returns:
+        Collected lock errors and any proven capacity infeasibility.
     """
     result = ValidationResult()
     for project_id, capacity in project_capacities.items():
         if type(capacity) is not int or capacity < 1:
             result.errors.append(
-                f"Project '{project_id}': maximum capacity must be a positive whole number."
+                f"Project '{project_id}': maximum capacity must be a "
+                f"positive whole number."
             )
     if result.errors:
         result.is_valid = False
@@ -296,41 +346,57 @@ def validate_fixed_assignments(
     project_counts: dict[str, int] = {}
     for index, fixed in enumerate(fixed_assignments, start=1):
         field = f"Fixed assignment #{index}"
-        valid_student = _validate_identifier(fixed.student_id, f"{field} student", result.errors)
-        valid_project = _validate_identifier(fixed.project_id, f"{field} project", result.errors)
+        valid_student = _validate_identifier(
+            fixed.student_id, f"{field} student", result.errors
+        )
+        valid_project = _validate_identifier(
+            fixed.project_id, f"{field} project", result.errors
+        )
         if not valid_student or not valid_project:
             continue
-        if not isinstance(fixed.status, str) or fixed.status not in FIXED_ASSIGNMENT_STATUSES:
+        if (
+            not isinstance(fixed.status, str)
+            or fixed.status not in FIXED_ASSIGNMENT_STATUSES
+        ):
             result.errors.append(
-                f"Fixed assignment for student '{fixed.student_id}' has unsupported status "
-                f"{fixed.status!r}. Use APPROVED, MANDATORY, or CONDITIONAL; all are active locks."
+                f"Fixed assignment for student '{fixed.student_id}' has "
+                f"unsupported status "
+                f"{fixed.status!r}. Use APPROVED, MANDATORY, or "
+                f"CONDITIONAL; all are active locks."
             )
         if fixed.student_id not in student_ids:
             result.errors.append(
-                f"Fixed assignment references unknown student '{fixed.student_id}'. "
+                f"Fixed assignment references unknown student "
+                f"'{fixed.student_id}'. "
                 "Student IDs are case-sensitive; use an exact cohort ID."
             )
         if fixed.project_id not in project_capacities:
             result.errors.append(
-                f"Fixed assignment references unknown project '{fixed.project_id}'. "
+                f"Fixed assignment references unknown project "
+                f"'{fixed.project_id}'. "
                 "Project IDs are case-sensitive; use an exact catalog ID."
             )
         if fixed.student_id in student_projects:
             previous_project = student_projects[fixed.student_id]
             if previous_project == fixed.project_id:
                 result.errors.append(
-                    f"Duplicate fixed assignment: student '{fixed.student_id}' is locked "
+                    f"Duplicate fixed assignment: student "
+                    f"'{fixed.student_id}' is locked "
                     f"to project '{fixed.project_id}' more than once."
                 )
             else:
                 result.errors.append(
-                    f"Contradictory fixed assignment: student '{fixed.student_id}' is "
-                    f"locked to both '{previous_project}' and '{fixed.project_id}'. "
+                    f"Contradictory fixed assignment: student "
+                    f"'{fixed.student_id}' is "
+                    f"locked to both '{previous_project}' and "
+                    f"'{fixed.project_id}'. "
                     "Release the existing lock before choosing another project."
                 )
         else:
             student_projects[fixed.student_id] = fixed.project_id
-            project_counts[fixed.project_id] = project_counts.get(fixed.project_id, 0) + 1
+            project_counts[fixed.project_id] = (
+                project_counts.get(fixed.project_id, 0) + 1
+            )
 
     if result.errors:
         result.is_valid = False
@@ -339,7 +405,8 @@ def validate_fixed_assignments(
     for project_id, count in project_counts.items():
         if count > project_capacities[project_id]:
             message = (
-                f"Fixed assignments ({count}) for project '{project_id}' exceed its "
+                f"Fixed assignments ({count}) for project '{project_id}' "
+                f"exceed its "
                 f"maximum capacity ({project_capacities[project_id]})."
             )
             result.errors.append(message)
@@ -356,19 +423,26 @@ def _check_mandatory_feasibility(
     enforce_exact_allocation: bool,
     result: ValidationResult,
 ) -> None:
-    """Checks necessary team coverage, allowing an optional project to stay unused.
+    """Check necessary team coverage for projects that must be used.
 
     Each used project needs one eligible member per mandatory skill. These
     individual checks do not prove that all projects can be staffed together.
     """
-    locked_projects = {fixed.student_id: fixed.project_id for fixed in fixed_assignments}
+    locked_projects = {
+        fixed.student_id: fixed.project_id for fixed in fixed_assignments
+    }
     total_max_capacity = sum(project.max_capacity for project in projects)
     usable_max_capacity = 0
     for project in projects:
-        locked_count = sum(project_id == project.id for project_id in locked_projects.values())
+        locked_count = sum(
+            project_id == project.id for project_id in locked_projects.values()
+        )
         has_open_place = locked_count < project.max_capacity
         project_must_be_used = project.min_capacity > 0 or locked_count > 0
-        if enforce_exact_allocation and len(students) > total_max_capacity - project.max_capacity:
+        if (
+            enforce_exact_allocation
+            and len(students) > total_max_capacity - project.max_capacity
+        ):
             project_must_be_used = True
 
         project_is_usable = True
@@ -382,15 +456,20 @@ def _check_mandatory_feasibility(
                     continue
                 if locked_project != project.id and not has_open_place:
                     continue
-                if student.get_skill_level(requirement.skill_id) >= requirement.minimum_level:
+                if (
+                    student.get_skill_level(requirement.skill_id)
+                    >= requirement.minimum_level
+                ):
                     qualified_students.append(student.id)
             if qualified_students:
                 continue
 
             project_is_usable = False
             detail = (
-                f"No eligible student meets mandatory skill '{requirement.skill_id}' "
-                f"(level {requirement.minimum_level}) for project '{project.id}', "
+                f"No eligible student meets mandatory skill "
+                f"'{requirement.skill_id}' "
+                f"(level {requirement.minimum_level}) for project "
+                f"'{project.id}', "
                 "after respecting fixed locks and available places."
             )
             if project_must_be_used:
@@ -399,12 +478,18 @@ def _check_mandatory_feasibility(
                 result.infeasibility_reasons.append(message)
                 result.is_feasible = False
             else:
-                result.warnings.append(f"{detail} This optional project must remain unused.")
+                result.warnings.append(
+                    f"{detail} This optional project must remain unused."
+                )
 
         if project_is_usable:
             usable_max_capacity += project.max_capacity
 
-    if enforce_exact_allocation and usable_max_capacity < total_max_capacity and len(students) > usable_max_capacity:
+    if (
+        enforce_exact_allocation
+        and usable_max_capacity < total_max_capacity
+        and len(students) > usable_max_capacity
+    ):
         message = (
             f"Mandatory skills and fixed locks leave usable project places "
             f"({usable_max_capacity}) below the cohort size ({len(students)})."
@@ -414,18 +499,33 @@ def _check_mandatory_feasibility(
         result.is_feasible = False
 
 
-def validate_run_settings(strategy_key: object, max_alternatives: object) -> ValidationResult:
+def validate_run_settings(
+    strategy_key: object, max_alternatives: object
+) -> ValidationResult:
     """Checks the names and 1-to-4 count supported by the current dashboard.
 
     Recognising a strategy name does not implement or approve its solver.
+
+    Args:
+        strategy_key: Submitted strategy name before type validation.
+        max_alternatives: Submitted alternative count before type validation.
+
+    Returns:
+        Errors for unsupported strategies or counts outside integers 1 to 4.
     """
     result = ValidationResult()
     if not isinstance(strategy_key, str) or strategy_key not in RUN_STRATEGIES:
         result.errors.append(
-            "Unknown assignment strategy. Use PREFERENCE, SKILL_FIT, or BALANCED."
+            "Unknown assignment strategy. Use PREFERENCE, SKILL_FIT, or "
+            "BALANCED."
         )
-    if type(max_alternatives) is not int or not 1 <= max_alternatives <= MAX_ALTERNATIVES:
-        result.errors.append("Requested alternatives must be a whole number from 1 to 4.")
+    if (
+        type(max_alternatives) is not int
+        or not 1 <= max_alternatives <= MAX_ALTERNATIVES
+    ):
+        result.errors.append(
+            "Requested alternatives must be a whole number from 1 to 4."
+        )
     result.is_valid = not result.errors
     return result
 
@@ -455,7 +555,8 @@ def validate_cohort(
         Short preference lists warn; duplicate projects, tied or invalid ranks,
         rank gaps, and unknown projects are rejected.
         Skill levels must be integers from 1 to 5 and mandatory flags booleans.
-        Supplied skill catalogues enforce references, including empty catalogues.
+        Supplied skill catalogues enforce references, including empty
+        catalogues.
         An omitted catalogue warns when references cannot be checked against it.
     """
     result = ValidationResult()
@@ -470,7 +571,9 @@ def validate_cohort(
         return result
 
     result.errors.extend(
-        _validate_identifiers(students, projects, skills or [], fixed_assignments or [])
+        _validate_identifiers(
+            students, projects, skills or [], fixed_assignments or []
+        )
     )
     result.errors.extend(_validate_skill_names(skills or []))
     if result.errors:
@@ -541,7 +644,8 @@ def validate_cohort(
 
     if fixed_assignments:
         fixed_result = validate_fixed_assignments(
-            fixed_assignments, student_ids,
+            fixed_assignments,
+            student_ids,
             {project.id: project.max_capacity for project in projects},
         )
         result.errors.extend(fixed_result.errors)
@@ -573,7 +677,11 @@ def validate_cohort(
         return result
 
     _check_mandatory_feasibility(
-        students, projects, fixed_assignments or [], enforce_exact_allocation, result
+        students,
+        projects,
+        fixed_assignments or [],
+        enforce_exact_allocation,
+        result,
     )
 
     if result.errors:

@@ -59,26 +59,46 @@ def create_app(test_config: dict[str, Any] | None = None) -> flask.Flask:
 
     @app.before_request
     def check_database_startup() -> tuple[str, int] | None:
-        if app.config["DATABASE_STARTUP_FAILED"] and flask.request.endpoint != "static":
+        """Allow static assets and reject requests after database failure."""
+        if (
+            app.config["DATABASE_STARTUP_FAILED"]
+            and flask.request.endpoint != "static"
+        ):
             return flask.render_template(
-                "database_error.html", title="Database unavailable",
-                message="The database could not be opened when the app started. Check the file and restart the app.",
+                "database_error.html",
+                title="Database unavailable",
+                message=(
+                    "The database could not be opened when the app started. "
+                    "Check the file and restart the app."
+                ),
             ), 503
         return None
 
     @app.errorhandler(sqlite3.DatabaseError)
     def database_failure(error: sqlite3.DatabaseError) -> tuple[str, int]:
+        """Report unavailable database operations with HTTP 503."""
         app.logger.warning("Database operation failed: %s", error)
         return flask.render_template(
-            "database_error.html", title="Database unavailable",
-            message="The database could not be read or saved. Check whether it is locked, read-only, unavailable, or damaged, then try again.",
+            "database_error.html",
+            title="Database unavailable",
+            message=(
+                "The database could not be read or saved. Check whether it is "
+                "locked, read-only, unavailable, or damaged, then try again."
+            ),
         ), 503
 
     @app.errorhandler(database.InvalidDatabaseRecords)
-    def invalid_saved_inputs(error: database.InvalidDatabaseRecords) -> tuple[str, int]:
+    def invalid_saved_inputs(
+        error: database.InvalidDatabaseRecords,
+    ) -> tuple[str, int]:
+        """Report invalid saved records without generating assignments."""
         return flask.render_template(
-            "database_error.html", title="Invalid saved input records",
-            message="Correct the records below before starting a run. No assignments were generated.",
+            "database_error.html",
+            title="Invalid saved input records",
+            message=(
+                "Correct the records below before starting a run. No "
+                "assignments were generated."
+            ),
             errors=error.errors,
         ), 422
 
