@@ -3,8 +3,7 @@
 import pathlib
 
 from app.domain import models
-from app.persistence import database
-from app.persistence import repositories
+from app.persistence import database, repositories
 
 
 def test_schema_init_and_skill_repo(tmp_path: pathlib.Path) -> None:

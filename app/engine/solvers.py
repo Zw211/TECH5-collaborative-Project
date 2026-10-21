@@ -9,13 +9,10 @@ that implements AssignmentEngineContract.
 """
 
 import abc
-import logging
 from typing import Any
-import uuid
 
 from app.contract import contract
-from app.domain import models
-from app.domain import validation
+from app.domain import models, validation
 from app.engine import metrics
 from app.persistence import repositories
 
@@ -44,7 +41,7 @@ class AssignmentStrategy(abc.ABC):
         project: models.Project,
         max_preferences: int,
     ) -> float:
-        """Computes objective utility or cost weight for assigning student to project.
+        """Compute the utility or cost of a student-project allocation.
 
         Args:
             student: The candidate student.
@@ -68,17 +65,18 @@ class AssignmentStrategy(abc.ABC):
         - Assign students to projects respecting capacities [min_cap, max_cap].
         - Enforce each student receives exactly one project allocation.
         - Strictly preserve pre-allocated fixed assignments.
-        - Support integer no-good cuts (excluded_solutions) to guarantee distinct
-          Pareto alternatives.
+        - Respect excluded allocations when generating distinct alternatives.
 
         Args:
             students: List of students in the cohort.
             projects: List of available semester projects.
-            fixed_assignments: Pre-assigned student-project pairs that must hold.
+            fixed_assignments: Pre-assigned student-project pairs that must
+                hold.
             excluded_solutions: Previous solution allocations to cut out.
 
         Returns:
-            A tuple of (solver_status, assignments, objective_value, diagnostics).
+            A tuple of (solver_status, assignments, objective_value,
+            diagnostics).
 
         Raises:
             NotImplementedError: To be implemented by Team B.
@@ -89,7 +87,7 @@ class AssignmentStrategy(abc.ABC):
 
 
 class AssignmentEngine(contract.AssignmentEngineContract):
-    """Main Assignment Engine orchestrating validation, execution, and persistence.
+    """Coordinate validation, assignment execution, and persistence.
 
     Implements the internal component contract (AssignmentEngineContract)
     connecting Component B to Component A.
@@ -127,6 +125,12 @@ class AssignmentEngine(contract.AssignmentEngineContract):
             skills=request.skills,
             fixed_assignments=request.fixed_assignments,
         )
+        settings_result = validation.validate_run_settings(
+            request.strategy_key, request.max_alternatives
+        )
+        val_result.errors.extend(settings_result.errors)
+        if not settings_result.is_valid:
+            val_result.is_valid = False
         return contract.ValidationOutcome(
             is_valid=val_result.is_valid,
             is_feasible=val_result.is_feasible,
@@ -135,15 +139,13 @@ class AssignmentEngine(contract.AssignmentEngineContract):
             infeasibility_reasons=list(val_result.infeasibility_reasons),
         )
 
-    def execute_run(
-        self, request: contract.RunRequest
-    ) -> models.AssignmentRun:
-        """Executes the assignment algorithm, calculates metrics, and persists run.
+    def execute_run(self, request: contract.RunRequest) -> models.AssignmentRun:
+        """Execute assignments and persist the resulting run.
 
         In accordance with Section 8 of the specification, Team B must:
         1. Synchronize entities to maintain relational integrity.
         2. Validate cohort feasibility.
-        3. Run assignment solver(s) to generate one or more distinct alternatives.
+        3. Generate one or more distinct assignment alternatives.
         4. Calculate indicators for each alternative using app.engine.metrics.
         5. Persist run and solutions via self.run_repo.
         6. Return populated models.AssignmentRun.
@@ -188,7 +190,7 @@ class AssignmentEngine(contract.AssignmentEngineContract):
         req = contract.RunRequest(
             students=students,
             projects=projects,
-            skills=skills or [],
+            skills=skills,
             fixed_assignments=fixed_assignments or [],
             strategy_key=strategy_name,
             max_alternatives=max_alternatives,

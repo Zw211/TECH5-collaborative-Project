@@ -10,8 +10,7 @@ import pathlib
 import pytest
 
 from app import create_app
-from app.contract import contract
-from app.contract import mocks
+from app.contract import contract, mocks
 from app.domain import models
 from app.engine import solvers
 from app.samples import demo_data
@@ -64,6 +63,285 @@ def test_contract_validate_inputs(tmp_path: pathlib.Path) -> None:
     bad_outcome = engine.validate_inputs(bad_req)
     assert not bad_outcome.is_feasible
     assert bad_outcome.infeasibility_reasons
+
+
+@pytest.mark.parametrize(
+    ("has_students", "has_projects", "expected_errors"),
+    [
+        pytest.param(
+            False,
+            True,
+            ["Student cohort cannot be empty."],
+            id="no-students",
+        ),
+        pytest.param(
+            True,
+            False,
+            ["Project catalog cannot be empty."],
+            id="no-projects",
+        ),
+        pytest.param(
+            False,
+            False,
+            [
+                "Student cohort cannot be empty.",
+                "Project catalog cannot be empty.",
+            ],
+            id="both-missing",
+        ),
+    ],
+)
+def test_contract_rejects_empty_datasets(
+    has_students: bool,
+    has_projects: bool,
+    expected_errors: list[str],
+) -> None:
+    """ID-01/ID-02: The engine returns clear errors for missing datasets."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    projects = [
+        models.Project(
+            id="P1", title="Project 1", min_capacity=1, max_capacity=2
+        )
+    ]
+    if not has_students:
+        students = []
+    if not has_projects:
+        projects = []
+    request = contract.RunRequest(students=students, projects=projects)
+    engine = solvers.AssignmentEngine()
+
+    outcome = engine.validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert outcome.errors == expected_errors
+    assert outcome.infeasibility_reasons == []
+
+
+def test_contract_reports_identifier_and_parent_errors() -> None:
+    """ID-04 to ID-07: Team A receives all structural errors without a crash."""
+    request = contract.RunRequest(
+        students=[
+            models.Student(
+                "S1",
+                "Student 1",
+                preferences=[models.Preference("S2", "P1", 1)],
+            )
+        ],
+        projects=[
+            models.Project(
+                "P1",
+                "Project 1",
+                requirements=[models.ProjectRequirement("P2", "py")],
+            )
+        ],
+        skills=[models.Skill("py", "Python"), models.Skill("py", " python ")],
+        fixed_assignments=[
+            models.FixedAssignment([], "P1"),  # type: ignore[arg-type]
+        ],
+    )
+    engine = solvers.AssignmentEngine()
+
+    outcome = engine.validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert len(outcome.errors) == 5
+    for message in [
+        "Preference in student 'S1' references student 'S2'",
+        "Requirement in project 'P1' references project 'P2'",
+        "Duplicate skill identifier",
+        "Duplicate skill name",
+        "Fixed assignment #1 student identifier must be text",
+    ]:
+        assert any(message in error for error in outcome.errors), outcome.errors
+    assert outcome.infeasibility_reasons == []
+
+
+@pytest.mark.parametrize(
+    ("choices", "expected_valid", "message"),
+    [
+        pytest.param([("P1", 1)], True, "at least 3", id="short-list"),
+        pytest.param([], True, "unranked project", id="no-choices"),
+        pytest.param(
+            [("P1", 1), ("P1", 2)],
+            False,
+            "project 'P1' more than once",
+            id="repeated-project",
+        ),
+        pytest.param(
+            [("P1", 1), ("P2", 1)],
+            False,
+            "rank 1 more than once",
+            id="tied-rank",
+        ),
+        pytest.param(
+            [("P1", True)],
+            False,
+            "positive whole number",
+            id="invalid-rank",
+        ),
+        pytest.param([("P1", 2)], False, "without gaps", id="rank-gap"),
+        pytest.param(
+            [("P99", 1)],
+            False,
+            "unknown project 'P99'",
+            id="unknown-project",
+        ),
+    ],
+)
+def test_contract_returns_preference_diagnostics(
+    choices: list[tuple[str, int]], expected_valid: bool, message: str
+) -> None:
+    """Return preference diagnostics through the existing contract."""
+    student = models.Student(
+        "S1",
+        "Student 1",
+        preferences=[
+            models.Preference("S1", project_id, rank)
+            for project_id, rank in choices
+        ],
+    )
+    request = contract.RunRequest(
+        students=[student],
+        projects=[
+            models.Project("P1", "Project 1"),
+            models.Project("P2", "Project 2"),
+            models.Project("P3", "Project 3"),
+        ],
+    )
+
+    outcome = solvers.AssignmentEngine().validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is expected_valid
+    messages = outcome.warnings if expected_valid else outcome.errors
+    assert any("S1" in item and message in item for item in messages), messages
+    assert outcome.infeasibility_reasons == []
+
+
+def test_contract_reports_skill_errors_without_claiming_infeasibility() -> None:
+    """Return several skill errors without claiming infeasibility."""
+    request = contract.RunRequest(
+        students=[models.Student("S1", "Student 1", skills={"py": True})],
+        projects=[
+            models.Project(
+                "P1",
+                "Project 1",
+                requirements=[
+                    models.ProjectRequirement(
+                        "P1",
+                        "py",
+                        None,
+                        "false",
+                    ),  # type: ignore[arg-type]
+                    models.ProjectRequirement("P1", "py", 2, True),
+                ],
+            )
+        ],
+        skills=[models.Skill("py", "Python")],
+    )
+
+    outcome = solvers.AssignmentEngine().validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert len(outcome.errors) == 4
+    assert any("Student 'S1'" in error for error in outcome.errors)
+    assert any("Project 'P1'" in error for error in outcome.errors)
+    assert outcome.infeasibility_reasons == []
+
+
+@pytest.mark.parametrize("catalogue", [None, []])
+def test_contract_distinguishes_omitted_and_empty_skill_catalogues(
+    catalogue: list[models.Skill] | None,
+) -> None:
+    """Reject unknown skills when the supplied catalogue is empty."""
+    request = contract.RunRequest(
+        students=[models.Student("S1", "Student 1", skills={"py": 3})],
+        projects=[
+            models.Project(
+                "P1",
+                "Project 1",
+                requirements=[models.ProjectRequirement("P1", "py", 2)],
+            )
+        ],
+        skills=catalogue,
+    )
+
+    outcome = solvers.AssignmentEngine().validate_inputs(request)
+
+    assert outcome.is_valid is (catalogue is None)
+    if catalogue is None:
+        assert any(
+            "catalogue was omitted" in warning for warning in outcome.warnings
+        )
+    else:
+        assert len(outcome.errors) == 2
+        assert all("unknown skill 'py'" in error for error in outcome.errors)
+
+
+@pytest.mark.parametrize("catalogue", [None, []])
+def test_convenience_run_preserves_skill_catalogue_policy(
+    catalogue: list[models.Skill] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve catalogue validation through the convenience API."""
+    engine = solvers.AssignmentEngine()
+
+    def validate_only(request: contract.RunRequest) -> models.AssignmentRun:
+        """Validate the constructed request without executing a solver."""
+        outcome = engine.validate_inputs(request)
+        return models.AssignmentRun(
+            "validation-only", diagnostics=outcome.to_dict()
+        )
+
+    monkeypatch.setattr(engine, "execute_run", validate_only)
+    run = engine.run_assignment(
+        students=[models.Student("S1", "Student 1", skills={"py": 3})],
+        projects=[models.Project("P1", "Project 1")],
+        skills=catalogue,
+    )
+
+    assert run.diagnostics["is_valid"] is (catalogue is None)
+    if catalogue is None:
+        assert any(
+            "catalogue was omitted" in warning
+            for warning in run.diagnostics["warnings"]
+        )
+    else:
+        assert any(
+            "unknown skill 'py'" in error for error in run.diagnostics["errors"]
+        )
+    assert run.solutions == []
+
+
+def test_contract_rejects_non_integer_capacity() -> None:
+    """CAP-01: The engine returns a clear input error to its caller."""
+    request = contract.RunRequest(
+        students=[models.Student(id="S01", display_name="Student 1")],
+        projects=[
+            models.Project(
+                id="P1",
+                title="Project 1",
+                min_capacity=0,
+                max_capacity="2",  # type: ignore[arg-type]
+            )
+        ],
+    )
+    engine = solvers.AssignmentEngine()
+
+    outcome = engine.validate_inputs(request)
+
+    assert isinstance(outcome, contract.ValidationOutcome)
+    assert outcome.is_valid is False
+    assert any(
+        "P1" in error
+        and "maximum capacity" in error
+        and "whole number" in error
+        for error in outcome.errors
+    ), outcome.errors
+    assert outcome.infeasibility_reasons == []
 
 
 def test_contract_execute_and_retrieval(tmp_path: pathlib.Path) -> None:
@@ -155,7 +433,7 @@ def test_contract_compare_solutions(tmp_path: pathlib.Path) -> None:
 
 
 def test_mock_engine_provided() -> None:
-    """Verifies that MockAssignmentEngine implements the contract out of the box."""
+    """Verify the mock engine implements the component contract."""
     mock_engine = mocks.MockAssignmentEngine()
     assert isinstance(mock_engine, contract.AssignmentEngineContract)
 

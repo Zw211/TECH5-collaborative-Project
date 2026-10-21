@@ -134,7 +134,7 @@ class AssignmentEngineContract(abc.ABC):
 
     @abc.abstractmethod
     def execute_run(self, request: RunRequest) -> models.AssignmentRun:
-        """Executes the assignment algorithm and generates solutions.
+        """Execute assignments and persist the resulting run.
 
         Args:
             request: The run request containing students, projects, etc.

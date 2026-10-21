@@ -11,7 +11,6 @@ import pathlib
 from app import create_app
 from app.contract import contract
 from app.engine import solvers
-from app.persistence import repositories
 
 
 def test_full_lifecycle_integration(tmp_path: pathlib.Path) -> None:
@@ -104,9 +103,7 @@ def test_full_lifecycle_integration(tmp_path: pathlib.Path) -> None:
     assert rerun_latest is not None
     assert rerun_latest.id != run1.id
     for sol in rerun_latest.solutions:
-        matching_asg = [
-            a for a in sol.assignments if a.student_id == "S02"
-        ]
+        matching_asg = [a for a in sol.assignments if a.student_id == "S02"]
         assert len(matching_asg) == 1
         assert matching_asg[0].project_id == "P2"
         assert matching_asg[0].is_fixed

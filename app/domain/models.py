@@ -7,7 +7,6 @@ skills, preferences, fixed assignments, runs, solutions, and indicators.
 import dataclasses
 import datetime
 from typing import Any
-import uuid
 
 
 @dataclasses.dataclass(frozen=True)
@@ -254,9 +253,7 @@ class Student:
         skills_raw = data.get("skills", {})
         skills_dict: dict[str, int] = {}
         if isinstance(skills_raw, dict):
-            skills_dict = {
-                str(k): int(v) for k, v in skills_raw.items()
-            }
+            skills_dict = {str(k): int(v) for k, v in skills_raw.items()}
         elif isinstance(skills_raw, list):
             for item in skills_raw:
                 if isinstance(item, dict):
@@ -613,17 +610,13 @@ class AssignmentRun:
         Returns:
             A new AssignmentRun instance.
         """
-        solutions = [
-            Solution.from_dict(s) for s in data.get("solutions", [])
-        ]
+        solutions = [Solution.from_dict(s) for s in data.get("solutions", [])]
         return cls(
             id=str(data["id"]),
             created_at=str(
                 data.get(
                     "created_at",
-                    datetime.datetime.now(
-                        datetime.timezone.utc
-                    ).isoformat(),
+                    datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 )
             ),
             status=str(data.get("status", "PENDING")),

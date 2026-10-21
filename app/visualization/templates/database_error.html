@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} - TECH5{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-header"><h1>{{ title }}</h1></div>
+  <div class="card-body">
+    <p>{{ message }}</p>
+    {% if errors %}
+    <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

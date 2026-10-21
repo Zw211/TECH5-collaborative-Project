@@ -1,15 +1,58 @@
 """Unit tests for domain validation and feasibility checking."""
 
-from app.domain import models
-from app.domain import validation
+import pytest
+
+from app.domain import models, validation
+
+# Each label makes the deliberately invalid input clear in pytest's output.
+INVALID_CAPACITIES = [
+    pytest.param(None, id="missing"),
+    pytest.param("", id="empty-text"),
+    pytest.param(" ", id="spaces-only"),
+    pytest.param("2", id="number-as-text"),
+    pytest.param("two", id="word"),
+    pytest.param(1.5, id="fraction"),
+    pytest.param(2.0, id="whole-number-as-float"),
+    pytest.param(True, id="true"),
+    pytest.param(False, id="false"),
+    pytest.param(float("nan"), id="not-a-number"),
+    pytest.param(float("inf"), id="positive-infinity"),
+    pytest.param(float("-inf"), id="negative-infinity"),
+]
 
 
 def test_empty_cohort_validation() -> None:
-    """Verifies that empty cohort data is flagged as invalid."""
+    """ID-01/ID-02: Reports both missing datasets before other checks."""
     res = validation.validate_cohort(students=[], projects=[])
     assert res.is_valid is False
     assert any("Student cohort cannot be empty" in err for err in res.errors)
     assert any("Project catalog cannot be empty" in err for err in res.errors)
+    assert len(res.errors) == 2
+    assert res.infeasibility_reasons == []
+
+
+def test_no_students_is_rejected() -> None:
+    """ID-01: Reports missing students without calculating a shortage."""
+    project = models.Project(
+        id="P1", title="Project 1", min_capacity=1, max_capacity=2
+    )
+
+    result = validation.validate_cohort(students=[], projects=[project])
+
+    assert result.is_valid is False
+    assert result.errors == ["Student cohort cannot be empty."]
+    assert result.infeasibility_reasons == []
+
+
+def test_no_projects_is_rejected() -> None:
+    """ID-02: Reports missing projects without calculating a shortage."""
+    student = models.Student(id="S01", display_name="Student 1")
+
+    result = validation.validate_cohort(students=[student], projects=[])
+
+    assert result.is_valid is False
+    assert result.errors == ["Project catalog cannot be empty."]
+    assert result.infeasibility_reasons == []
 
 
 def test_duplicate_identifiers() -> None:
@@ -29,7 +72,7 @@ def test_duplicate_identifiers() -> None:
 
 
 def test_capacity_errors() -> None:
-    """Verifies detection of negative, zero, or inverted capacities."""
+    """CAP-03: Rejects a minimum capacity above the maximum capacity."""
     students = [models.Student(id="S01", display_name="Student 1")]
     projects = [
         models.Project(
@@ -38,7 +81,240 @@ def test_capacity_errors() -> None:
     ]
     res = validation.validate_cohort(students=students, projects=projects)
     assert res.is_valid is False
-    assert any("exceeding max capacity" in err for err in res.errors)
+    assert any(
+        "P1" in err
+        and "exceeding max capacity" in err
+        and "5" in err
+        and "2" in err
+        for err in res.errors
+    ), res.errors
+    assert res.infeasibility_reasons == []
+    assert res.is_feasible is True
+
+
+@pytest.mark.parametrize("capacity", INVALID_CAPACITIES)
+def test_minimum_capacity_must_be_an_integer(capacity: object) -> None:
+    """CAP-01: Reports a bad minimum without crashing or calculating totals."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    project = models.Project(
+        id="P1",
+        title="Project 1",
+        min_capacity=capacity,  # type: ignore[arg-type]
+        max_capacity=3,
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is False
+    assert any(
+        "P1" in error
+        and "minimum capacity" in error.lower()
+        and "whole number" in error.lower()
+        for error in result.errors
+    ), result.errors
+    assert result.infeasibility_reasons == []
+
+
+@pytest.mark.parametrize("capacity", INVALID_CAPACITIES)
+def test_maximum_capacity_must_be_an_integer(capacity: object) -> None:
+    """CAP-01: Reports a bad maximum without crashing or calculating totals."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    project = models.Project(
+        id="P1",
+        title="Project 1",
+        min_capacity=0,
+        max_capacity=capacity,  # type: ignore[arg-type]
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is False
+    assert any(
+        "P1" in error
+        and "maximum capacity" in error.lower()
+        and "whole number" in error.lower()
+        for error in result.errors
+    ), result.errors
+    assert result.infeasibility_reasons == []
+
+
+def test_capacity_type_errors_are_reported_together() -> None:
+    """CAP-01: Reports every bad field without using partial capacity totals."""
+    students = [
+        models.Student(id="S01", display_name="Student 1"),
+        models.Student(id="S02", display_name="Student 2"),
+    ]
+    projects = [
+        models.Project(
+            id="P1",
+            title="Project 1",
+            min_capacity=None,  # type: ignore[arg-type]
+            max_capacity="two",  # type: ignore[arg-type]
+        ),
+        models.Project(
+            id="P2",
+            title="Project 2",
+            min_capacity="1",  # type: ignore[arg-type]
+            max_capacity=None,  # type: ignore[arg-type]
+        ),
+        models.Project(
+            id="P3", title="Project 3", min_capacity=0, max_capacity=1
+        ),
+    ]
+
+    result = validation.validate_cohort(students, projects)
+
+    assert result.is_valid is False
+    assert len(result.errors) == 4
+    for project_id in ["P1", "P2"]:
+        assert any(
+            project_id in error and "minimum capacity" in error
+            for error in result.errors
+        ), result.errors
+        assert any(
+            project_id in error and "maximum capacity" in error
+            for error in result.errors
+        ), result.errors
+    assert result.infeasibility_reasons == []
+
+
+@pytest.mark.parametrize("min_capacity", [-1, -2])
+def test_negative_minimum_capacity_is_rejected(min_capacity: int) -> None:
+    """CAP-02: Rejects a negative minimum and identifies the project."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    project = models.Project(
+        id="P1",
+        title="Project 1",
+        min_capacity=min_capacity,
+        max_capacity=3,
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is False
+    assert any(
+        "P1" in error and "negative min capacity" in error
+        for error in result.errors
+    ), result.errors
+    assert result.infeasibility_reasons == []
+    assert result.is_feasible is True
+
+
+@pytest.mark.parametrize("max_capacity", [0, -1])
+def test_non_positive_maximum_capacity_is_rejected(
+    max_capacity: int,
+) -> None:
+    """CAP-02: Rejects a zero or negative maximum and identifies the project."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    project = models.Project(
+        id="P1",
+        title="Project 1",
+        min_capacity=0,
+        max_capacity=max_capacity,
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is False
+    assert any(
+        "P1" in error and "non-positive max capacity" in error
+        for error in result.errors
+    ), result.errors
+    assert result.infeasibility_reasons == []
+    assert result.is_feasible is True
+
+
+def test_invalid_capacity_ranges_are_not_used_to_prove_infeasibility() -> None:
+    """CAP-02/03: Reject all bad bounds before calculating cohort shortages."""
+    result = validation.validate_cohort(
+        [models.Student("S1", "Student 1")],
+        [
+            models.Project("P1", "Project 1", min_capacity=5, max_capacity=2),
+            models.Project("P2", "Project 2", min_capacity=-1, max_capacity=0),
+        ],
+    )
+
+    assert result.is_valid is False
+    assert len(result.errors) == 3
+    assert any("P1" in error for error in result.errors)
+    assert any("P2" in error for error in result.errors)
+    assert result.infeasibility_reasons == []
+    assert result.is_feasible is True
+
+
+def test_zero_minimum_capacity_is_allowed() -> None:
+    """CAP-04: Allows minimum zero and the smallest valid maximum, one."""
+    students = [models.Student(id="S01", display_name="Student 1")]
+    project = models.Project(
+        id="P1", title="Project 1", min_capacity=0, max_capacity=1
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is True
+    assert result.is_feasible is True
+    assert result.errors == []
+    assert result.infeasibility_reasons == []
+
+
+def test_cohort_at_minimum_capacity_is_allowed() -> None:
+    """CAP-04: Allows two students when the project's minimum is two."""
+    students = [
+        models.Student(id="S01", display_name="Student 1"),
+        models.Student(id="S02", display_name="Student 2"),
+    ]
+    project = models.Project(
+        id="P1", title="Project 1", min_capacity=2, max_capacity=3
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is True
+    assert result.is_feasible is True
+    assert result.errors == []
+    assert result.infeasibility_reasons == []
+
+
+def test_cohort_at_maximum_capacity_is_allowed() -> None:
+    """CAP-04: Allows two locked students when the maximum is two."""
+    students = [
+        models.Student(id="S01", display_name="Student 1"),
+        models.Student(id="S02", display_name="Student 2"),
+    ]
+    project = models.Project(
+        id="P1", title="Project 1", min_capacity=1, max_capacity=2
+    )
+    fixed_assignments = [
+        models.FixedAssignment(student_id="S01", project_id="P1"),
+        models.FixedAssignment(student_id="S02", project_id="P1"),
+    ]
+
+    result = validation.validate_cohort(
+        students, [project], fixed_assignments=fixed_assignments
+    )
+
+    assert result.is_valid is True
+    assert result.is_feasible is True
+    assert result.errors == []
+    assert result.infeasibility_reasons == []
+
+
+def test_equal_minimum_and_maximum_capacity_is_allowed() -> None:
+    """CAP-04: Allows two students when both capacity bounds are two."""
+    students = [
+        models.Student(id="S01", display_name="Student 1"),
+        models.Student(id="S02", display_name="Student 2"),
+    ]
+    project = models.Project(
+        id="P1", title="Project 1", min_capacity=2, max_capacity=2
+    )
+
+    result = validation.validate_cohort(students, [project])
+
+    assert result.is_valid is True
+    assert result.is_feasible is True
+    assert result.errors == []
+    assert result.infeasibility_reasons == []
 
 
 def test_contradictory_fixed_assignments() -> None:

@@ -5,6 +5,7 @@ and registers the Component A (Visualization & Recommendation) blueprint.
 """
 
 import os
+import sqlite3
 from typing import Any
 
 import flask
@@ -43,12 +44,62 @@ def create_app(test_config: dict[str, Any] | None = None) -> flask.Flask:
 
     # Initialize relational database tables
     db_path = app.config.get("DATABASE_PATH")
+    app.config["DATABASE_STARTUP_FAILED"] = False
     if db_path:
-        db_mgr = database.DatabaseManager(db_path)
-        database.db_manager = db_mgr
-        db_mgr.initialize_schema()
+        try:
+            db_mgr = database.DatabaseManager(db_path)
+            database.db_manager = db_mgr
+            db_mgr.initialize_schema()
+        except (sqlite3.Error, OSError) as error:
+            app.config["DATABASE_STARTUP_FAILED"] = True
+            app.logger.error("Database initialization failed: %s", error)
 
     # Register Component A (Visualization & Recommendation) blueprint
     app.register_blueprint(visualization_routes.web_bp)
+
+    @app.before_request
+    def check_database_startup() -> tuple[str, int] | None:
+        """Allow static assets and reject requests after database failure."""
+        if (
+            app.config["DATABASE_STARTUP_FAILED"]
+            and flask.request.endpoint != "static"
+        ):
+            return flask.render_template(
+                "database_error.html",
+                title="Database unavailable",
+                message=(
+                    "The database could not be opened when the app started. "
+                    "Check the file and restart the app."
+                ),
+            ), 503
+        return None
+
+    @app.errorhandler(sqlite3.DatabaseError)
+    def database_failure(error: sqlite3.DatabaseError) -> tuple[str, int]:
+        """Report unavailable database operations with HTTP 503."""
+        app.logger.warning("Database operation failed: %s", error)
+        return flask.render_template(
+            "database_error.html",
+            title="Database unavailable",
+            message=(
+                "The database could not be read or saved. Check whether it is "
+                "locked, read-only, unavailable, or damaged, then try again."
+            ),
+        ), 503
+
+    @app.errorhandler(database.InvalidDatabaseRecords)
+    def invalid_saved_inputs(
+        error: database.InvalidDatabaseRecords,
+    ) -> tuple[str, int]:
+        """Report invalid saved records without generating assignments."""
+        return flask.render_template(
+            "database_error.html",
+            title="Invalid saved input records",
+            message=(
+                "Correct the records below before starting a run. No "
+                "assignments were generated."
+            ),
+            errors=error.errors,
+        ), 422
 
     return app
