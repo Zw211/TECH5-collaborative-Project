@@ -31,14 +31,15 @@ merely because code exists.
 - [x] Milestone 1: one verified feasible assignment.
 - [x] Milestone 2: preference and skill-fit objectives.
 - [x] Milestone 3: up to K distinct assignments.
-- [ ] Milestone 4: metrics and complete domain results.
+- [x] Milestone 4: metrics and complete domain results.
 - [ ] Milestone 5: engine contract and persistence.
 - [ ] Milestone 6: automated real-application integration.
 - [ ] Instructor approval, review, and final passing checks before merging.
 
-**Next action:** Milestone 4, aggregate metrics and domain solutions, when
-requested. Resolve unranked fairness and soft-gap semantics first. Milestones
-1–3 are complete; engine orchestration and application integration remain pending.
+**Next action:** Milestone 5 (engine orchestration and persistence), when
+requested. Resolve omitted skill-catalog persistence and run-status mapping.
+Milestones 1–4 are complete; execute_run and real application integration remain
+unimplemented. Do not start Milestone 5 as part of the current request.
 
 ## Architecture to preserve
 
@@ -50,7 +51,8 @@ The strategy returns `(status, assignments, objective_value, diagnostics)`.
 The engine owns validation, alternatives, metrics, and persistence; optimization
 does not access Flask or the database. Existing retrieval methods already work.
 The strategy registry and execution method are unfinished. Individual skill fit
-is implemented; aggregate metrics and comparisons are unfinished. UI routes currently catch
+and aggregate metrics/comparisons are implemented. Solution construction is
+private and ready for later engine orchestration. UI routes currently catch
 `NotImplementedError` and execute a mock; page rendering alone is not solver proof.
 
 ## Decisions and open questions
@@ -67,8 +69,8 @@ is implemented; aggregate metrics and comparisons are unfinished. UI routes curr
 | Skill fit | Mean capped proficiency ratios, equal requirement weights; no requirements=1 | Authorized with Milestone 2 on 2026-10-22 |
 | Strategies | PREFERENCE, SKILL_FIT, BALANCED are already accepted keys | Existing interface |
 | Alternatives | Default K=3, supported 1–4; repeat selected strategy with fixed weights and accumulated cuts | Implemented Milestone 3 |
-| Fairness | Treatment of unranked outcomes in rank means, Gini, and comparisons | Open; blocks milestone 4 |
-| Soft gaps | Individual unmet requirements versus uncovered team requirements | Open; blocks milestone 4 |
+| Fairness | Same cohort M+1 for unranked numerical ranks; retain None and separate count | Explicitly approved and implemented Milestone 4 |
+| Soft gaps | Count non-mandatory gaps per student/project/requirement, canonical individual_unmet_soft_requirements_count | Explicitly approved and implemented Milestone 4 |
 | Omitted catalog | Validation accepts skills=None, but fresh SQLite data may lack referenced skills | Resolve before milestone 5; never invent catalog rows |
 
 The course file referenced as `assignment/projectTech5.tex` is absent from this
@@ -155,14 +157,14 @@ Files: `solvers.py`, solver tests, `solver_spec.md`, this plan.
 
 Files: `metrics.py`, `solvers.py`, metric/solver tests, analytical documentation.
 
-- [ ] Complete assignment metadata and construct `Solution` objects.
-- [ ] Implement `calculate_gini`, `compute_solution_indicators`, and
+- [x] Complete assignment metadata and construct `Solution` objects.
+- [x] Implement `calculate_gini`, `compute_solution_indicators`, and
   `compare_two_solutions` with existing signatures.
-- [ ] Preserve indicator keys consumed by Team A templates/recommendations.
-- [ ] Agree and document unranked and soft-gap semantics.
-- [ ] Test hand-calculated metrics, deliberately invalid assignments, Gini
+- [x] Preserve indicator keys consumed by Team A templates/recommendations.
+- [x] Agree and document unranked and soft-gap semantics.
+- [x] Test hand-calculated metrics, deliberately invalid assignments, Gini
   boundaries, comparisons, and domain serialization.
-- [ ] Ensure individual skill gaps do not falsely imply failed team coverage.
+- [x] Ensure individual skill gaps do not falsely imply failed team coverage.
 
 ## Milestone 5 — engine and persistence
 
@@ -350,3 +352,59 @@ risks, any revised decision, and the next unchecked action.
   - Ruff lint passed; Ruff formatting passed across 43 files; git diff check passed.
 - Reviewed implementation and test diffs. Commit Milestone 3 locally with its
   documentation and tests; preserve untracked user guidance `docs/AGENTS.md`.
+
+### 2026-10-22 — Milestone 4 started (not complete)
+
+- Inspected existing metric tests, mock payloads, domain models, recommendation
+  consumers, and templates. The mock uses synthetic fairness values and cannot
+  establish a real policy for unranked ranks or soft-gap counts.
+- Implemented calculate_gini independently of those policy decisions. Empty and
+  all-zero inputs return 0; negative/nonfinite values raise ValueError. Sorting
+  uses the standard weighted-sum formula; scaling prevents large-value overflow.
+- Added tests/test_gini.py (13 cases) and removed only the now-obsolete Gini xfail.
+- Focused verification: `python -m pytest -q -p no:cacheprovider
+  tests/test_gini.py tests/test_metrics.py` -> **15 passed, 2 xfailed**.
+  Ruff checks on these changed files passed.
+- Awaiting user confirmation of proposed metric policy: use cohort M+1 for
+  unranked numerical rank statistics (retain None in assignment metadata), and
+  count soft gaps per student/project/requirement. These are proposals, not yet
+  implemented or treated as approved.
+- No milestone completion commit until the remaining implementation and
+  verification are finished. No contract or Team A changes.
+
+- Full suite after Gini: **543 passed, 4 baseline failures, 10 xfailed in
+  2.98s** (`python -m pytest -q -p no:cacheprovider --tb=short`). All four
+  failures still come from unimplemented execute_run. `git diff --check` passed.
+
+### 2026-10-22 — Milestone 4 completed
+
+- User approved cohort-wide M+1 numerical penalties, retaining actual None ranks,
+  including M=0 when all preference lists are empty. Approved individual soft-gap
+  counts excluding mandatory skills, with a descriptive canonical metric name.
+- Implemented feasibility/efficiency/fairness/capacity indicators and comparisons
+  in metrics.py. Kept existing soft-count key as an explicitly documented alias;
+  solution warnings explain that it is not team-level uncovered requirements.
+- Added private `_build_solution` for verified domain conversion, fresh metadata,
+  real indicators, copied assignments, UUIDs, and preserved warnings/diagnostics.
+  No execute_run implementation or persistence work included.
+- Added tests/test_solution_metrics.py for mixed ranks, shared penalties across
+  real alternatives, individual-vs-team coverage, invalid assignments, comparison
+  directions/deltas, legacy missing penalties, and JSON/domain round trips.
+- Removed only implemented metric xfails; updated the contract test that formerly
+  expected comparison to raise NotImplementedError to verify real delegation.
+- Comparisons reject different student sets or conflicting recorded penalties.
+  Legacy missing penalties are disclosed; no fabricated rank 99 is introduced.
+  UI handling of incompatible comparisons remains an integration consideration.
+- No shared models, contract, Team A, or unrelated files modified.
+
+- Final verification using `/private/tmp/tech5-solver-venv/bin/python`:
+  - `-m pytest -q -p no:cacheprovider tests/test_solution_metrics.py
+    tests/test_metrics.py tests/test_gini.py tests/test_contract_and_engine.py
+    --tb=short` -> **59 passed in 0.39s**.
+  - `-m pytest -q -p no:cacheprovider --tb=short` -> **565 passed, 4 failed,
+    8 xfailed in 3.39s**. Failures remain the four original capacity tests that
+    reach unimplemented execute_run. No new regressions observed.
+  - `ruff check app tests run.py`, `ruff format --check app tests run.py`
+    (45 files), and `git diff --check` passed.
+- Reported these results to the user before committing, as requested. Create
+  the local milestone commit under the standing workflow; do not push.

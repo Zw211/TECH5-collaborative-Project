@@ -9,8 +9,10 @@ that implements AssignmentEngineContract.
 """
 
 import abc
+import dataclasses
 import math
 import time
+import uuid
 from typing import Any
 
 import pulp
@@ -304,6 +306,72 @@ def _generate_alternatives(
         search["stop_reason"] = "K_REACHED"
     search["returned_count"] = len(results)
     return results, search
+
+
+def _build_solution(
+    run_id: str,
+    alternative_number: int,
+    strategy_name: str,
+    students: list[models.Student],
+    projects: list[models.Project],
+    result: tuple[list[models.Assignment], float | None, dict[str, Any]],
+    fixed_assignments: list[models.FixedAssignment] | None = None,
+) -> models.Solution:
+    """Convert a solver result into a verified solution without persistence.
+
+    Every alternative must receive the same complete cohort so M is identical.
+    Copy assignment metadata rather than mutating the solver result.
+    """
+    raw_assignments, objective, diagnostics = result
+    locks = fixed_assignments or []
+    _verify_assignment(students, projects, locks, raw_assignments)
+    student_by_id = {s.id: s for s in students}
+    project_by_id = {p.id: p for p in projects}
+    fixed_pairs = {(lock.student_id, lock.project_id) for lock in locks}
+    assignments = []
+    for assignment in raw_assignments:
+        student = student_by_id[assignment.student_id]
+        project = project_by_id[assignment.project_id]
+        fit, unmet = metrics.calculate_assignment_skill_fit(student, project)
+        assignments.append(
+            dataclasses.replace(
+                assignment,
+                preference_rank=student.get_preference_rank(project.id),
+                skill_fit_score=fit,
+                unmet_requirements=unmet,
+                is_fixed=(student.id, project.id) in fixed_pairs,
+            )
+        )
+    indicators = metrics.compute_solution_indicators(
+        students, projects, assignments, locks
+    )
+    if not indicators["feasibility"]["is_feasible"]:
+        raise ValueError(
+            "Cannot create a feasible Solution from invalid assignments."
+        )
+    warnings = list(diagnostics.get("warnings", []))
+    fair = indicators["fairness"]
+    if fair["unranked_count"]:
+        warnings.append(
+            f"Numerical rank statistics use {fair['unranked_penalty']} (M+1) "
+            "for unranked assignments; this is a penalty, not an actual rank."
+        )
+    if indicators["efficiency"]["individual_unmet_soft_requirements_count"]:
+        warnings.append(
+            "Soft gaps count individual student-project requirements, "
+            "not unmet team-level requirements."
+        )
+    return models.Solution(
+        id=str(uuid.uuid4()),
+        run_id=run_id,
+        alternative_number=alternative_number,
+        strategy_name=strategy_name,
+        objective_value=objective,
+        assignments=assignments,
+        indicators=indicators,
+        warnings=warnings,
+        diagnostics={**diagnostics, "metrics_computed": True},
+    )
 
 
 def _build_feasibility_model(

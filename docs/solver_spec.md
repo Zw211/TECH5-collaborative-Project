@@ -259,3 +259,96 @@ milestone descriptions are historical snapshots; nonempty exclusions no longer
 raise NotImplementedError. Aggregate metrics, engine registration, execute_run,
 and application integration are still future work. Instructor approval remains
 pending. No contract, domain, UI, or persistence interface changed.
+
+
+## Milestone 4 — indicators and domain solutions
+
+The user confirmed the following definitions for implementation. These analytical
+rules do not change the objective, allocation decisions, or hard constraints.
+
+### Rank statistics and unranked assignments
+
+`Assignment.preference_rank` stays None when the assigned project is unranked.
+Compute M from the maximum preference-list length across the **entire input
+cohort**, not from selected assignments. Every solution in a run receives that
+same cohort. When all preference lists are empty, M=0.
+
+For numerical statistics only, substitute M+1 for None. This is an **analytical
+penalty, not an actual preference rank**. Use these numerical values in mean
+rank, worst rank, population variance (divide by n), and rank Gini. Actual rank
+histograms contain only `rank_1`, `rank_2`, etc.; unranked_count/unranked_pct report
+unranked assignments separately. The fairness dictionary records max_preferences,
+unranked_penalty, and rank_statistics_scope, so comparisons can check the scale.
+For [rank 1, unranked] and M=3, the numerical values are [1,4]: mean 2.5, worst 4,
+variance 2.25, Gini 0.3, and unranked_count=1. Neither assignment is relabeled 4.
+
+For an empty assignment list, numerical summaries return zero, but a missing or
+empty cohort/assignment is not a feasible solution. Gini returns zero for empty
+or all-zero input and rejects negative/nonfinite values. For n sorted values,
+G = sum((2*i-n-1)*x[i]) / (n*sum(x)), with one-based i. Scaling by the largest
+value prevents overflow. Equal penalties can yield Gini=0 even when everyone is
+unranked: equality is not evidence of satisfaction. Inspect unranked_count too.
+
+### Individual soft-requirement gaps
+
+The canonical metric is
+`efficiency.individual_unmet_soft_requirements_count`:
+count one for each assigned student–project–requirement combination where the
+requirement is non-mandatory and the student's level is below the required level.
+Do not count mandatory requirements. Missing skills have level zero.
+
+This measures **individual compatibility**, not uncovered team requirements.
+Example: a team of two has an optional SQL requirement; one member qualifies and
+the other does not. The team covers SQL but the individual gap count is 1.
+A mandatory skill missing from one member is not included in the soft count,
+and does not violate feasibility if another assigned member covers it.
+`Assignment.unmet_requirements` still lists all individual gaps, including
+mandatory ones, as defined by the existing domain object.
+
+For compatibility with existing templates/recommendations,
+`unmet_soft_requirements_count` is retained as an alias of this individual count,
+not a second team metric. `soft_requirement_count_scope` explicitly records
+`individual_student_project_requirement`. Built solutions with gaps carry a
+warning explaining this meaning. No Team A labels or recommendation code changed;
+those existing labels remain generic and must be interpreted with this warning.
+
+### Feasibility, efficiency, and capacity
+
+Indicators independently check known references, exactly one row per student,
+all capacity bounds, mandatory coverage on used projects, and fixed assignments.
+They list violations instead of claiming invalid output is feasible. Unknown
+references and repeated-student rows are excluded from numerical summaries;
+remaining summaries on infeasible output are diagnostic, not valid outcomes.
+Inputs are expected to have passed cohort validation.
+
+Mean skill fit and total skill fit aggregate Assignment.skill_fit_score. The
+solution builder refreshes rank/fit/gap/fixed metadata from current domain inputs
+before calculation. Direct metric callers must supply accurate metadata (the
+existing tests intentionally pass explicit scores). No input objects are mutated.
+Capacity utilization is assigned count / maximum capacity * 100, both per project
+and overall; zero denominator returns zero. Unranked percentage uses summarized
+assignment count; valid solutions assign the whole cohort.
+
+### Solution construction and comparison
+
+`_build_solution` converts a verified assignment/score/diagnostic result into an
+existing Solution with a UUID, supplied parent run ID, alternative number,
+strategy, indicators, warnings, and metrics_computed=True. It checks feasibility,
+copies assignments, and never persists or runs the Flask application. The same
+complete cohort must be supplied for each alternative. Engine orchestration is
+still Milestone 5.
+
+Comparisons report B minus A for mean fit, mean penalized rank, unranked count,
+and Gini when both solutions report it. Display deltas are rounded to 10 decimal
+places to suppress floating-point noise. Changed rows preserve actual ranks and
+use the common recorded penalty for numerical rank_delta. Ranked beats unranked;
+two unranked outcomes have SAME direction. Summaries describe calculated changes
+without claiming that lower inequality implies universally better assignments.
+
+Comparisons require identical uniquely assigned student sets. Conflicting
+recorded penalties raise ValueError rather than silently comparing scales.
+Legacy/mock solutions without a common recorded penalty use stored aggregate
+metrics, but numerical deltas involving unranked rows are None with an explicit
+summary notice. Missing required aggregate indicators raise KeyError, not fake
+zero deltas. Team A may need explicit error presentation for incompatible legacy
+comparisons in later integration; no UI modifications are included here.
