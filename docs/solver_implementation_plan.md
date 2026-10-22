@@ -32,14 +32,14 @@ merely because code exists.
 - [x] Milestone 2: preference and skill-fit objectives.
 - [x] Milestone 3: up to K distinct assignments.
 - [x] Milestone 4: metrics and complete domain results.
-- [ ] Milestone 5: engine contract and persistence.
+- [x] Milestone 5: engine contract and persistence — ready for review; Team A UI issue remains.
 - [ ] Milestone 6: automated real-application integration.
 - [ ] Instructor approval, review, and final passing checks before merging.
 
-**Next action:** Milestone 5 (engine orchestration and persistence), when
-requested. Resolve omitted skill-catalog persistence and run-status mapping.
-Milestones 1–4 are complete; execute_run and real application integration remain
-unimplemented. Do not start Milestone 5 as part of the current request.
+**Current task:** Milestone 5 is ready for review under the user-approved
+exception for the Team A-owned HTML assertion documented below. The full suite
+is not green. Next implementation milestone is Milestone 6, on request; Team A
+must correct its own test on its branch. Do not modify or skip that test.
 
 ## Architecture to preserve
 
@@ -50,10 +50,10 @@ AssignmentRun -> RunRepository`.
 The strategy returns `(status, assignments, objective_value, diagnostics)`.
 The engine owns validation, alternatives, metrics, and persistence; optimization
 does not access Flask or the database. Existing retrieval methods already work.
-The strategy registry and execution method are unfinished. Individual skill fit
-and aggregate metrics/comparisons are implemented. Solution construction is
-private and ready for later engine orchestration. UI routes currently catch
-`NotImplementedError` and execute a mock; page rendering alone is not solver proof.
+The strategy registry, execution, solution construction, metrics/comparisons,
+and atomic persistence are implemented. UI routes retain their existing mock
+fallback for `NotImplementedError`; the real engine now executes successfully.
+Page rendering alone is not solver proof.
 
 ## Decisions and open questions
 
@@ -71,7 +71,7 @@ private and ready for later engine orchestration. UI routes currently catch
 | Alternatives | Default K=3, supported 1–4; repeat selected strategy with fixed weights and accumulated cuts | Implemented Milestone 3 |
 | Fairness | Same cohort M+1 for unranked numerical ranks; retain None and separate count | Explicitly approved and implemented Milestone 4 |
 | Soft gaps | Count non-mandatory gaps per student/project/requirement, canonical individual_unmet_soft_requirements_count | Explicitly approved and implemented Milestone 4 |
-| Omitted catalog | Validation accepts skills=None, but fresh SQLite data may lack referenced skills | Resolve before milestone 5; never invent catalog rows |
+| Omitted catalog | skills=None may reference existing database skills; missing rows produce INVALID_INPUT | Implemented in execute_run, no synthetic catalog entries |
 
 The course file referenced as `assignment/projectTech5.tex` is absent from this
 checkout. Some architecture documents describe a finished solver that does not
@@ -170,22 +170,22 @@ Files: `metrics.py`, `solvers.py`, metric/solver tests, analytical documentation
 
 Files: `solvers.py`, contract/engine and persistence tests, implementation docs.
 
-- [ ] Register PREFERENCE, SKILL_FIT, BALANCED and implement `execute_run`.
-- [ ] Validate direct calls before solving or synchronizing cohort records.
-- [ ] Generate UUIDs, configuration, diagnostics, alternatives, and metrics.
-- [ ] Reuse repositories with `self.run_repo.db` and existing transactions;
+- [x] Register PREFERENCE, SKILL_FIT, BALANCED and implement `execute_run`.
+- [x] Validate direct calls before solving or synchronizing cohort records.
+- [x] Generate UUIDs, configuration, diagnostics, alternatives, and metrics.
+- [x] Reuse repositories with `self.run_repo.db` and existing transactions;
   synchronize entities in foreign-key order without clearing historical data.
-- [ ] Resolve omitted skill-catalog behavior for headless callers.
-- [ ] Persist and retrieve runs/solutions; preserve convenience API behavior.
-- [ ] Test invalid requests without solver invocation, status mapping,
+- [x] Resolve omitted skill-catalog behavior for headless callers.
+- [x] Persist and retrieve runs/solutions; preserve convenience API behavior.
+- [x] Test invalid requests without solver invocation, status mapping,
   persistence round trips, comparison, and rollback after write failures.
-- [ ] Replace obsolete tests expecting empty registry/NotImplementedError.
+- [x] Replace obsolete tests expecting empty registry/NotImplementedError.
 
-Proposed run mapping: structural errors -> INVALID_INPUT; proven infeasibility
+Milestone 5 run mapping: structural errors -> INVALID_INPUT; proven infeasibility
 before any solution -> INFEASIBLE; requested results or proven exhaustion ->
 COMPLETED; timeout/unknown -> WARNING (retain only verified incumbents); solver
 failure or invalid extraction -> FAILED. Preserve exact solver termination in
-diagnostics. Agree these semantics before integration. Never infer optimality
+diagnostics. Never infer optimality
 from a coarse status or confuse timeout with infeasibility.
 
 ## Milestone 6 — real application integration
@@ -408,3 +408,62 @@ risks, any revised decision, and the next unchecked action.
     (45 files), and `git diff --check` passed.
 - Reported these results to the user before committing, as requested. Create
   the local milestone commit under the standing workflow; do not push.
+
+### 2026-10-22 — Milestone 5 integration (ready for review)
+
+- Registered all strategies and implemented execute_run, metadata, validation,
+  search status mapping, real domain results, and atomic persistence using the
+  injected repository database. No Flask dependencies added to engine logic.
+- Omitted catalogs resolve references only against existing database rows;
+  missing referenced IDs produce INVALID_INPUT, never invented skills.
+- Existing rejected requests persist only diagnostics. Successful or partially
+  successful searches synchronize supplied entities and save the full run in
+  one transaction; persistence errors propagate and roll back.
+- Added tests/test_engine_execution.py covering all strategies, round trips,
+  input immutability, rejected requests, catalog policies, warning/failure with
+  and without incumbents, rollback, and fixed-lock reruns preserving history.
+- Replaced obsolete skeleton assertions in solver/contract tests. Removed seven
+  obsolete solver xfails in test_edge_cases.py and isolated their SQLite fixture;
+  they previously inherited another test's simulated-failure database trigger.
+- The original four capacity-boundary failures now pass. Focused execution and
+  edge tests: **31 passed**. Full run: **591 passed, 1 failed**, no xfails.
+- Final focused Team B verification: **185 passed in 3.15s** using
+  `/private/tmp/tech5-solver-venv/bin/python -m pytest -q -p no:cacheprovider`
+  with `tests/test_bilp_feasibility.py`, `tests/test_bilp_objectives.py`,
+  `tests/test_bilp_alternatives.py`, `tests/test_solution_metrics.py`,
+  `tests/test_gini.py`, `tests/test_metrics.py`, `tests/test_solvers.py`,
+  `tests/test_contract_and_engine.py`, `tests/test_edge_cases.py`, and
+  `tests/test_engine_execution.py`, plus `--tb=short`.
+- Full suite, with no test excluded, skipped, or marked xfail:
+  `/private/tmp/tech5-solver-venv/bin/python -m pytest -q -p no:cacheprovider --tb=short`
+  -> **591 passed, 1 failed in 4.51s**.
+- `/private/tmp/tech5-solver-venv/bin/python -m ruff check .` -> all checks passed.
+  Ruff format check on `app/engine` and the four changed test modules ->
+  **8 files already formatted**. `git diff --check` passed.
+- Reviewed engine implementation, new execution tests, updated Team B skeleton
+  tests, and solver documentation. No Team A application files or tests, shared
+  contract, domain models, or persistence implementation were modified.
+  Untracked user-owned `docs/AGENTS.md` remains excluded from the commit.
+- User explicitly accepted review readiness with this sole unrelated UI failure.
+  Local milestone commit is authorized by the standing workflow; no push or merge.
+  Full-suite success remains an outstanding merge prerequisite.
+
+#### Team A handoff — HTML assertion (open, owner: Team A)
+
+- Location: `tests/test_visualization_component.py:881`,
+  `test_compare_two_alternatives_of_a_run`. The file remains unchanged.
+- Reproduce with the full-suite command above or target that single test.
+- Actual: HTTP 200; Jinja correctly renders
+  `Cloud Data Pipeline &amp; Lakehouse`. The test searches raw response bytes for
+  `Cloud Data Pipeline & Lakehouse`, so its unescaped-string assertion fails.
+- A separate temporary-database reproduction replaced AssignmentEngine with
+  MockAssignmentEngine for both execution and comparison, then gave the first
+  changed project the same ampersand-containing title. The escaped title was
+  present and the raw title absent. Thus the assertion problem reproduces
+  independently of Team B's BILP implementation. Real allocations exposed a
+  latent test assumption; this is not a claim that the test failed on the old
+  mock-selected data before Milestone 5.
+- Team A should correct the assertion on its own branch by checking HTML-escaped
+  text or parsed visible text, keeping template autoescaping enabled. No fix or
+  skip is applied by Team B. This note is the review handoff; no external message
+  has been sent to Team A.

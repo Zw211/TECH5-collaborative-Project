@@ -352,3 +352,56 @@ metrics, but numerical deltas involving unranked rows are None with an explicit
 summary notice. Missing required aggregate indicators raise KeyError, not fake
 zero deltas. Team A may need explicit error presentation for incompatible legacy
 comparisons in later integration; no UI modifications are included here.
+
+
+## Milestone 5 — contract execution and persistence
+
+AssignmentEngine registers PREFERENCE, SKILL_FIT, and BALANCED. execute_run now
+validates direct requests, generates alternatives, builds real Solution objects,
+and persists the resulting AssignmentRun. run_assignment continues delegating
+through RunRequest. No public signatures or domain models changed.
+
+Validation happens before optimization or cohort writes. Structural errors yield
+INVALID_INPUT; pure mathematical validation failures yield INFEASIBLE. Both are
+stored as runs with no solutions and no cohort synchronization. Settings use the
+existing accepted strategy names and K=1–4. Notes, engine identity, selected
+strategy, K, PuLP version, per-solve time limit, and cohort M are recorded.
+
+If skills is None, referenced skills must already exist in the injected
+repository's database. Missing rows yield INVALID_INPUT with explicit IDs and a
+request to supply a catalog. No synthetic Skill rows are created. An explicitly
+empty catalog still rejects all skill references even if rows exist in the DB.
+validate_inputs remains the existing stateless domain check; the persistence
+reference check happens only in execute_run.
+
+Search status mapping:
+
+| Search result | RunStatus |
+| --- | --- |
+| K_REACHED / EXHAUSTED | COMPLETED |
+| Initial INFEASIBLE | INFEASIBLE |
+| INVALID_INPUT | INVALID_INPUT |
+| NOT_SOLVED / NON_OPTIMAL_INCUMBENT | WARNING |
+| FAILED / DUPLICATE / invalid solution construction | FAILED |
+
+Earlier verified solutions are retained on later interruption/failure. Initial
+infeasibility reasons are exposed at run level; proof of exhaustion remains in
+search-attempt diagnostics without labeling earlier solutions infeasible.
+Successful runs may still contain input warnings. Run status is not a claim of
+objective optimality; each solution retains its own proof flag. The elapsed solve
+time is summed across attempts. distinct_alternatives reflects built solutions.
+
+For runs containing solutions, supplied skills, projects, students, and locks
+are upserted in foreign-key order and then the complete run is saved inside one
+shared transaction using self.run_repo.db. Any SQLite error propagates to the
+caller and rolls back all those writes. A failed persistence operation cannot
+truthfully return a persisted FAILED run, so it raises instead. Database schema
+initialization is the responsibility of the caller/application, as before.
+
+No cohort replacement or history-clearing methods are called. Entities and locks
+not supplied are not deleted; the request defines the solving cohort/locks for
+that run. Historical assignment rows retain their decisions and stored metrics;
+current entity names/profiles may be updated by upserts. The schema does not
+store full historical input snapshots. Repositories list runs with solution
+metadata; get_run/get_solution provide full assignments, preserving existing
+retrieval behavior. Full application test hardening remains Milestone 6.

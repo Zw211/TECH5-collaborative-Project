@@ -579,7 +579,9 @@ class AssignmentEngine(contract.AssignmentEngineContract):
             run_repo if run_repo is not None else repositories.RunRepository()
         )
         self.strategies: dict[str, AssignmentStrategy] = {
-            # Team B: Instantiate and register your custom strategies here
+            "PREFERENCE": PreferenceOrientedSolver(),
+            "SKILL_FIT": SkillFitOrientedSolver(),
+            "BALANCED": BalancedTradeoffSolver(),
         }
 
     def validate_inputs(
@@ -614,28 +616,154 @@ class AssignmentEngine(contract.AssignmentEngineContract):
         )
 
     def execute_run(self, request: contract.RunRequest) -> models.AssignmentRun:
-        """Execute assignments and persist the resulting run.
-
-        In accordance with Section 8 of the specification, Team B must:
-        1. Synchronize entities to maintain relational integrity.
-        2. Validate cohort feasibility.
-        3. Generate one or more distinct assignment alternatives.
-        4. Calculate indicators for each alternative using app.engine.metrics.
-        5. Persist run and solutions via self.run_repo.
-        6. Return populated models.AssignmentRun.
+        """Validate, optimize, build solutions, and persist an atomic run.
 
         Args:
-            request: The run request containing students, projects, etc.
+            request: Complete cohort, optional catalog, locks, and run settings.
 
         Returns:
-            The created AssignmentRun populated with alternative solutions.
+            Persisted run with verified solutions and termination diagnostics.
 
         Raises:
-            NotImplementedError: To be implemented by Team B.
+            sqlite3.DatabaseError: Persistence failed; changes are rolled back.
         """
-        raise NotImplementedError(
-            "TODO (Team B): Implement execute_run in app/engine/solvers.py"
+        checked = self.validate_inputs(request)
+        run = models.AssignmentRun(
+            id=str(uuid.uuid4()),
+            configuration={
+                "engine": "AssignmentEngine",
+                "primary_strategy": request.strategy_key,
+                "max_alternatives": request.max_alternatives,
+                "notes": request.notes,
+                "solver_version": pulp.__version__,
+                "time_limit_seconds_per_solve": (
+                    config.Config.PULP_TIME_LIMIT_SECONDS
+                ),
+                "max_preferences": max(
+                    (len(s.preferences) for s in request.students), default=0
+                ),
+            },
+            diagnostics={
+                "solver_status": "NOT_RUN",
+                "errors": list(checked.errors),
+                "warnings": list(checked.warnings),
+                "reasons": list(checked.infeasibility_reasons),
+            },
         )
+        structural_errors = [
+            error
+            for error in checked.errors
+            if error not in checked.infeasibility_reasons
+        ]
+        if not checked.is_valid or not checked.is_feasible:
+            run.status = "INVALID_INPUT" if structural_errors else "INFEASIBLE"
+            self.run_repo.save_run(run)
+            return run
+
+        # An omitted catalog can reference existing rows; never invent skills.
+        if request.skills is None:
+            catalog_ids = {
+                s.id
+                for s in repositories.SkillRepository(
+                    self.run_repo.db
+                ).list_all()
+            }
+            referenced_ids = {
+                skill_id for s in request.students for skill_id in s.skills
+            }
+            referenced_ids.update(
+                r.skill_id for p in request.projects for r in p.requirements
+            )
+            missing = referenced_ids - catalog_ids
+            if missing:
+                run.status = "INVALID_INPUT"
+                run.diagnostics["errors"].append(
+                    "Supply a skill catalog for IDs missing from the database: "
+                    + ", ".join(sorted(missing))
+                )
+                self.run_repo.save_run(run)
+                return run
+
+        strategy = self.strategies[request.strategy_key]
+        results, search = _generate_alternatives(
+            strategy,
+            request.students,
+            request.projects,
+            request.fixed_assignments,
+            request.max_alternatives,
+        )
+        run.diagnostics["search"] = search
+        for attempt in search["attempts"]:
+            info = attempt["diagnostics"]
+            run.diagnostics["solver_status"] = info.get(
+                "solver_status", "UNKNOWN"
+            )
+            run.diagnostics["errors"].extend(info.get("errors", []))
+            run.diagnostics["warnings"].extend(info.get("warnings", []))
+        # Exhaustion after valid alternatives is not initial infeasibility.
+        if search["stop_reason"] == "INFEASIBLE" and search["attempts"]:
+            run.diagnostics["reasons"] = search["attempts"][-1][
+                "diagnostics"
+            ].get("infeasibility_reasons", [])
+        run.status = {
+            "K_REACHED": "COMPLETED",
+            "EXHAUSTED": "COMPLETED",
+            "INFEASIBLE": "INFEASIBLE",
+            "INVALID_INPUT": "INVALID_INPUT",
+            "NOT_SOLVED": "WARNING",
+            "NON_OPTIMAL_INCUMBENT": "WARNING",
+            "FAILED": "FAILED",
+            "DUPLICATE": "FAILED",
+        }[search["stop_reason"]]
+        try:
+            for number, result in enumerate(results, start=1):
+                run.solutions.append(
+                    _build_solution(
+                        run.id,
+                        number,
+                        strategy.name,
+                        request.students,
+                        request.projects,
+                        result,
+                        request.fixed_assignments,
+                    )
+                )
+        except ValueError as error:
+            run.status = "FAILED"
+            run.diagnostics["errors"].append(str(error))
+        # Stable deduplication preserves the original validation warning order.
+        run.diagnostics["warnings"] = list(
+            dict.fromkeys(run.diagnostics["warnings"])
+        )
+        run.diagnostics["solve_time_seconds"] = sum(
+            attempt["diagnostics"].get("solve_time_seconds", 0.0)
+            for attempt in search["attempts"]
+        )
+        run.diagnostics["distinct_alternatives"] = len(run.solutions)
+        if run.solutions:
+            self._persist_run_with_cohort(request, run)
+        else:
+            self.run_repo.save_run(run)
+        return run
+
+    def _persist_run_with_cohort(
+        self,
+        request: contract.RunRequest,
+        run: models.AssignmentRun,
+    ) -> None:
+        """Save supplied entities and the full run in one shared transaction."""
+        with self.run_repo.db.transaction() as transaction_db:
+            for skill in request.skills or []:
+                repositories.SkillRepository(transaction_db).save(skill)
+            for project in request.projects:
+                repositories.ProjectRepository(transaction_db).save(project)
+            for student in request.students:
+                repositories.StudentRepository(transaction_db).save(student)
+            for lock in request.fixed_assignments or []:
+                repositories.FixedAssignmentRepository(transaction_db).save(
+                    lock
+                )
+            repositories.RunRepository(transaction_db).save_run(run)
 
     def run_assignment(
         self,
