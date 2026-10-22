@@ -30,15 +30,15 @@ merely because code exists.
 - [x] Create this editable plan.
 - [x] Milestone 1: one verified feasible assignment.
 - [x] Milestone 2: preference and skill-fit objectives.
-- [ ] Milestone 3: up to K distinct assignments.
+- [x] Milestone 3: up to K distinct assignments.
 - [ ] Milestone 4: metrics and complete domain results.
 - [ ] Milestone 5: engine contract and persistence.
 - [ ] Milestone 6: automated real-application integration.
 - [ ] Instructor approval, review, and final passing checks before merging.
 
-**Next action:** Milestone 3, distinct alternatives, when requested. Confirm the
-alternative strategy schedule before implementation. Milestones 1 and 2 are
-complete; application execution and aggregate metrics remain unfinished.
+**Next action:** Milestone 4, aggregate metrics and domain solutions, when
+requested. Resolve unranked fairness and soft-gap semantics first. Milestones
+1–3 are complete; engine orchestration and application integration remain pending.
 
 ## Architecture to preserve
 
@@ -66,7 +66,7 @@ is implemented; aggregate metrics and comparisons are unfinished. UI routes curr
 | Objective | P=(M-r+1)/M, unranked=0, cohort-wide M; BALANCED weights 0.5/0.5 | Authorized with Milestone 2 on 2026-10-22 |
 | Skill fit | Mean capped proficiency ratios, equal requirement weights; no requirements=1 | Authorized with Milestone 2 on 2026-10-22 |
 | Strategies | PREFERENCE, SKILL_FIT, BALANCED are already accepted keys | Existing interface |
-| Alternatives | Default K=3; validation accepts integers 1–4; recommend repeated selected objective with no-good cuts | Scheduling policy open |
+| Alternatives | Default K=3, supported 1–4; repeat selected strategy with fixed weights and accumulated cuts | Implemented Milestone 3 |
 | Fairness | Treatment of unranked outcomes in rank means, Gini, and comparisons | Open; blocks milestone 4 |
 | Soft gaps | Individual unmet requirements versus uncovered team requirements | Open; blocks milestone 4 |
 | Omitted catalog | Validation accepts skills=None, but fresh SQLite data may lack referenced skills | Resolve before milestone 5; never invent catalog rows |
@@ -143,13 +143,13 @@ Files: `solvers.py`, `metrics.py`, `tests/test_bilp_objectives.py`,
 
 Files: `solvers.py`, solver tests, `solver_spec.md`, this plan.
 
-- [ ] Agree whether to repeat the selected objective or schedule strategies.
-- [ ] Implement and validate `excluded_solutions` no-good cuts.
-- [ ] Add a small alternative-generation helper with canonical pair sets for
+- [x] Agree whether to repeat the selected objective or schedule strategies.
+- [x] Implement and validate `excluded_solutions` no-good cuts.
+- [x] Add a small alternative-generation helper with canonical pair sets for
   duplicate checking; stop at K, proven exhaustion, or interruption.
-- [ ] Test K=1/3/4, tied objectives, one solution, fewer than K solutions,
+- [x] Test K=1/3/4, tied objectives, one solution, fewer than K solutions,
   pairwise distinctness, and lock preservation in every result.
-- [ ] Document that exhaustion after cuts does not invalidate earlier solutions.
+- [x] Document that exhaustion after cuts does not invalidate earlier solutions.
 
 ## Milestone 4 — metrics and domain objects
 
@@ -320,3 +320,33 @@ risks, any revised decision, and the next unchecked action.
 
 - Final quality checks passed: `ruff check app tests run.py`,
   `ruff format --check app tests run.py` (42 files), and `git diff --check`.
+
+### 2026-10-22 — Milestone 3
+
+- Continued the planned simplest schedule: repeatedly optimize the selected
+  strategy, without changing weights. No alternative-objective policy added.
+- Implemented validated, deduplicated no-good cuts in the existing solve API;
+  independently reject excluded results during extraction.
+- Added private `_generate_alternatives`, returning existing assignment tuples
+  and per-attempt diagnostics without changing the public contract. Stop at K,
+  proven exhaustion, failure, duplicate, or a verified nonoptimal incumbent.
+- Preserve earlier feasible solutions on every later stopping condition. Never
+  label exhaustion under cuts as infeasibility of earlier assignments.
+- Replaced the old exclusion-not-implemented test with an actual exhaustion
+  assertion. Added `tests/test_bilp_alternatives.py` covering all strategies,
+  K=1/3/4, default K, tied scores, fewer alternatives, locks/skills, invalid cuts,
+  duplicate cuts, objective ordering, and interrupted searches.
+- Limits remain per solve (15 seconds), not per alternative search. No extra
+  solve after K; no Pareto or exhaustive-enumeration claim on reaching K.
+- No engine integration, aggregate metrics, UI edits, or pushes in this milestone.
+
+- Verification with `/private/tmp/tech5-solver-venv/bin/python`:
+  - `-m pytest -q -p no:cacheprovider tests/test_bilp_alternatives.py
+    tests/test_bilp_feasibility.py tests/test_bilp_objectives.py`:
+    **88 passed** (29 new alternative cases).
+  - `-m pytest -q -p no:cacheprovider --tb=short`:
+    **529 passed, 4 failed, 11 xfailed in 3.49s**. All four failures remain the
+    original execute_run capacity-boundary cases; no new failures or xfails.
+  - Ruff lint passed; Ruff formatting passed across 43 files; git diff check passed.
+- Reviewed implementation and test diffs. Commit Milestone 3 locally with its
+  documentation and tests; preserve untracked user guidance `docs/AGENTS.md`.

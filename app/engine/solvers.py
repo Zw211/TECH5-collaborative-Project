@@ -74,20 +74,13 @@ class AssignmentStrategy(abc.ABC):
             students: Complete cohort of students.
             projects: Projects with capacities and team skill requirements.
             fixed_assignments: Active administrative locks of every status.
-            excluded_solutions: Must be empty in this milestone.
+            excluded_solutions: Complete allocations to exclude from this solve.
 
         Returns:
             Status, verified assignments, objective value, and diagnostics.
             Statuses: FEASIBLE, INFEASIBLE, INVALID_INPUT, NOT_SOLVED, FAILED.
             A feasible result does not claim preference or skill optimality.
-
-        Raises:
-            NotImplementedError: Nonempty exclusions are not supported yet.
         """
-        if excluded_solutions:
-            raise NotImplementedError(
-                "Alternative exclusions are not implemented"
-            )
         locks = fixed_assignments or []
         checked = validation.validate_cohort(
             students, projects, fixed_assignments=locks
@@ -112,7 +105,21 @@ class AssignmentStrategy(abc.ABC):
             diagnostics["solver_status"] = "NOT_RUN"
             return status, [], None, diagnostics
 
+        try:
+            exclusions = _validate_exclusions(
+                excluded_solutions, students, projects
+            )
+        except ValueError as error:
+            diagnostics["solver_status"] = "NOT_RUN"
+            diagnostics["errors"].append(str(error))
+            return "INVALID_INPUT", [], None, diagnostics
         problem, variables = _build_feasibility_model(students, projects, locks)
+        for allocation in exclusions:
+            # Exact allocation means at least one of these pairs must change.
+            problem += pulp.lpSum(variables[pair] for pair in allocation) <= (
+                len(students) - 1
+            )
+        diagnostics["excluded_solutions_count"] = len(exclusions)
         max_preferences = max(len(student.preferences) for student in students)
         utilities = {
             (student.id, project.id): self.calculate_cost_or_utility(
@@ -151,7 +158,9 @@ class AssignmentStrategy(abc.ABC):
         diagnostics["solution_status"] = pulp.LpSolution[problem.sol_status]
         if problem.status == pulp.LpStatusInfeasible:
             diagnostics["infeasibility_reasons"].append(
-                "CBC proved that the hard constraints cannot all be satisfied."
+                "CBC proved no allocation remains after exclusions."
+                if exclusions
+                else "CBC proved the hard constraints infeasible."
             )
             return "INFEASIBLE", [], None, diagnostics
         if problem.status == pulp.LpStatusUnbounded:
@@ -175,6 +184,9 @@ class AssignmentStrategy(abc.ABC):
         try:
             assignments = _extract_assignments(variables, students, locks)
             _verify_assignment(students, projects, locks, assignments)
+            pairs = frozenset((a.student_id, a.project_id) for a in assignments)
+            if pairs in exclusions:
+                raise ValueError("Solver returned an excluded assignment.")
         except ValueError as error:
             diagnostics["errors"].append(str(error))
             return "FAILED", [], None, diagnostics
@@ -198,6 +210,100 @@ class AssignmentStrategy(abc.ABC):
             and problem.sol_status == pulp.LpSolutionOptimal
         )
         return "FEASIBLE", assignments, objective, diagnostics
+
+
+def _validate_exclusions(
+    excluded_solutions: list[list[tuple[str, str]]] | None,
+    students: list[models.Student],
+    projects: list[models.Project],
+) -> list[frozenset[tuple[str, str]]]:
+    """Validate complete allocations with known IDs; deduplicate cuts."""
+    if excluded_solutions is None:
+        return []
+    if not isinstance(excluded_solutions, list):
+        raise ValueError("Excluded solutions must be a list of allocations.")
+    student_ids = {student.id for student in students}
+    project_ids = {project.id for project in projects}
+    exclusions = []
+    for allocation in excluded_solutions:
+        if not isinstance(allocation, list) or len(allocation) != len(students):
+            raise ValueError("Each exclusion must allocate every student once.")
+        seen = set()
+        for pair in allocation:
+            if (
+                not isinstance(pair, tuple)
+                or len(pair) != 2
+                or not all(isinstance(value, str) for value in pair)
+            ):
+                raise ValueError("Excluded pairs must be two string IDs.")
+            student_id, project_id = pair
+            if (
+                student_id not in student_ids
+                or project_id not in project_ids
+                or student_id in seen
+            ):
+                raise ValueError("Unknown ID or repeated student in exclusion.")
+            seen.add(student_id)
+        canonical = frozenset(allocation)
+        if canonical not in exclusions:
+            exclusions.append(canonical)
+    return exclusions
+
+
+def _generate_alternatives(
+    strategy: AssignmentStrategy,
+    students: list[models.Student],
+    projects: list[models.Project],
+    fixed_assignments: list[models.FixedAssignment] | None = None,
+    max_alternatives: int = 3,
+) -> tuple[
+    list[tuple[list[models.Assignment], float | None, dict[str, Any]]],
+    dict[str, Any],
+]:
+    """Repeat one strategy with cuts, retaining verified distinct results.
+
+    Returns raw assignment/score/diagnostic tuples for later engine integration,
+    plus search diagnostics. Stops on K, proven exhaustion, or interruption.
+    Retain a nonoptimal incumbent, then stop without claiming best-K results.
+    Each solve has its own configured time limit.
+    """
+    search: dict[str, Any] = {
+        "requested_count": max_alternatives,
+        "returned_count": 0,
+        "attempts": [],
+        "stop_reason": "INVALID_INPUT",
+    }
+    settings = validation.validate_run_settings(strategy.name, max_alternatives)
+    if not settings.is_valid:
+        search["errors"] = settings.errors
+        return [], search
+    results = []
+    exclusions: list[list[tuple[str, str]]] = []
+    seen: set[frozenset[tuple[str, str]]] = set()
+    for _ in range(max_alternatives):
+        status, assignments, objective, info = strategy.solve(
+            students, projects, fixed_assignments, exclusions
+        )
+        search["attempts"].append({"status": status, "diagnostics": info})
+        if status != "FEASIBLE":
+            search["stop_reason"] = (
+                "EXHAUSTED" if status == "INFEASIBLE" and results else status
+            )
+            break
+        pairs = frozenset((a.student_id, a.project_id) for a in assignments)
+        if pairs in seen:
+            search["stop_reason"] = "DUPLICATE"
+            break
+        results.append((assignments, objective, info))
+        seen.add(pairs)
+        exclusions.append(sorted(pairs))
+        if not info.get("optimality_proven", False):
+            search["stop_reason"] = "NON_OPTIMAL_INCUMBENT"
+            break
+    else:
+        search["stop_reason"] = "K_REACHED"
+    search["returned_count"] = len(results)
+    return results, search
 
 
 def _build_feasibility_model(

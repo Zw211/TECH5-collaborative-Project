@@ -203,9 +203,14 @@ def test_invalid_input_does_not_invoke_cbc(
 
 
 def test_exclusions_are_not_silently_ignored() -> None:
-    """Alternative generation is explicitly outside milestone 1."""
-    with pytest.raises(NotImplementedError, match="exclusions"):
-        FeasibilityStrategy().solve([], [], excluded_solutions=[[("S", "P")]])
+    """Excluding the only full assignment proves exhaustion."""
+    result = FeasibilityStrategy().solve(
+        [models.Student("S", "S")],
+        [models.Project("P", "P")],
+        excluded_solutions=[[("S", "P")]],
+    )
+    assert result[:3] == ("INFEASIBLE", [], None)
+    assert result[3]["excluded_solutions_count"] == 1
 
 
 @pytest.mark.parametrize(

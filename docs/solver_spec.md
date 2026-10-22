@@ -109,13 +109,44 @@ no tie-breaking objective or multiple-alternative logic is implemented.
 
 ## Alternative Solutions
 
-Support up to K distinct feasible assignments, with K = 3 as the default.
+Milestone 3 repeats the selected strategy with unchanged weights, using the
+simplest schedule proposed in the implementation plan. Default K=3; existing
+validation permits integer K from 1 to 4. Strategies are not rotated.
 
-Two solutions are distinct only if at least one student's project assignment differs.
+Two allocations are distinct only if at least one student's project differs.
+For each previous complete allocation A, add the no-good cut
+`sum(x[i,j] for (i,j) in A) <= number_of_students - 1`. Accumulate all cuts.
+This works because each student is allocated exactly once. Locks and every other
+hard constraint remain active in every solve. Equal scores can produce distinct
+assignments; arbitrary tie ordering is allowed.
 
-Different objective weights may produce identical assignments. The implementation must detect duplicates.
+Exclusions must be lists of complete allocations, each containing one tuple of
+known student/project string IDs per student. Malformed/incomplete exclusions
+return INVALID_INPUT before solving. Repeated exclusions are canonicalized and
+added only once. Exclusions need not be feasible under the current constraints;
+excluding an infeasible complete assignment cannot remove a feasible assignment.
+Inputs are not modified. Extraction also rejects a result matching a cut.
 
-Do not manufacture additional solutions when fewer than K feasible alternatives exist.
+The private `_generate_alternatives` helper returns a list of existing
+assignment/score/diagnostic tuples and search diagnostics, ready for later engine
+integration. It does not create or persist AssignmentRun/Solution objects yet.
+It stops at:
+
+| Stop reason | Interpretation |
+| --- | --- |
+| K_REACHED | K verified distinct solutions obtained; exhaustion is not claimed. |
+| EXHAUSTED | A later solve proved no further allocations remain; earlier results remain valid. |
+| INFEASIBLE | No solution exists before any alternative was accepted. |
+| NON_OPTIMAL_INCUMBENT | Keep the verified incumbent, then stop; best-K ordering is not established. |
+| NOT_SOLVED / FAILED / INVALID_INPUT | Retain earlier results and report the actual stopping condition. |
+| DUPLICATE | Defensive check rejected a repeated result; no padding or retry loop. |
+
+Each attempt preserves its status and diagnostics. Each solve uses the existing
+15-second limit, so up to K solves may consume approximately K times that limit,
+plus setup time. This is not a total-run time budget. There is no extra solve
+after reaching K. Only if every accepted solve proves optimality can results be
+called successive best assignments under the same objective and exclusions.
+Distinctness does not establish Pareto efficiency.
 
 ## Solver Results
 
@@ -220,3 +251,11 @@ Only the skill-fit function in metrics.py is completed. Gini, solution indicator
 comparisons, strategy registration in AssignmentEngine, execute_run, and distinct
 alternatives remain future milestones. The original Milestone 1 regression suite
 uses a test-only zero-utility strategy; its expected successful score is now 0.0.
+
+## Milestone 3 implementation (2026-10-22)
+
+Exclusions and the private alternative loop are now implemented. Earlier
+milestone descriptions are historical snapshots; nonempty exclusions no longer
+raise NotImplementedError. Aggregate metrics, engine registration, execute_run,
+and application integration are still future work. Instructor approval remains
+pending. No contract, domain, UI, or persistence interface changed.
