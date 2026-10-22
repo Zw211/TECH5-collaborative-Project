@@ -29,16 +29,16 @@ merely because code exists.
 - [x] Inspect contract, domain, validation, solver skeleton, metrics, and tests.
 - [x] Create this editable plan.
 - [x] Milestone 1: one verified feasible assignment.
-- [ ] Milestone 2: preference and skill-fit objectives.
+- [x] Milestone 2: preference and skill-fit objectives.
 - [ ] Milestone 3: up to K distinct assignments.
 - [ ] Milestone 4: metrics and complete domain results.
 - [ ] Milestone 5: engine contract and persistence.
 - [ ] Milestone 6: automated real-application integration.
 - [ ] Instructor approval, review, and final passing checks before merging.
 
-**Next action:** agree the open preference/skill scoring decisions and obtain
-authorization for Milestone 2. Stop here: the current request authorizes only
-Milestone 1. Objectives, alternatives, and engine integration are not built.
+**Next action:** Milestone 3, distinct alternatives, when requested. Confirm the
+alternative strategy schedule before implementation. Milestones 1 and 2 are
+complete; application execution and aggregate metrics remain unfinished.
 
 ## Architecture to preserve
 
@@ -49,8 +49,8 @@ AssignmentRun -> RunRepository`.
 The strategy returns `(status, assignments, objective_value, diagnostics)`.
 The engine owns validation, alternatives, metrics, and persistence; optimization
 does not access Flask or the database. Existing retrieval methods already work.
-The strategy registry and execution method are unfinished. Metrics are unfinished
-apart from the no-requirements skill-fit case. UI routes currently catch
+The strategy registry and execution method are unfinished. Individual skill fit
+is implemented; aggregate metrics and comparisons are unfinished. UI routes currently catch
 `NotImplementedError` and execute a mock; page rendering alone is not solver proof.
 
 ## Decisions and open questions
@@ -63,8 +63,8 @@ apart from the no-requirements skill-fit case. UI routes currently catch
 | Mandatory skills | Team coverage by at least one sufficiently qualified member per skill, required when a project is used | Confirmed 2026-10-22 |
 | Locks | APPROVED, MANDATORY, and CONDITIONAL are all active in current validation | Existing policy |
 | Solver | PuLP 3.3.0 with its bundled CBC via PULP_CBC_CMD; retains project Python 3.10 compatibility | Pinned; local smoke test passed |
-| Objective | Preference score, unranked utility, normalization, and balanced weights | Open; blocks milestone 2 |
-| Skill fit | Existing test expects mean capped proficiency ratios; no requirements returns 1.0 | Confirm before milestone 2 |
+| Objective | P=(M-r+1)/M, unranked=0, cohort-wide M; BALANCED weights 0.5/0.5 | Authorized with Milestone 2 on 2026-10-22 |
+| Skill fit | Mean capped proficiency ratios, equal requirement weights; no requirements=1 | Authorized with Milestone 2 on 2026-10-22 |
 | Strategies | PREFERENCE, SKILL_FIT, BALANCED are already accepted keys | Existing interface |
 | Alternatives | Default K=3; validation accepts integers 1–4; recommend repeated selected objective with no-good cuts | Scheduling policy open |
 | Fairness | Treatment of unranked outcomes in rank means, Gini, and comparisons | Open; blocks milestone 4 |
@@ -87,8 +87,8 @@ exist yet. Use source and tests to distinguish implementation from intentions.
   sum(x[i,j] for qualified i)`. This also allows an empty zero-minimum project
   without introducing activation variables. Different members can cover skills.
 - Milestone 1 has a constant objective; it establishes feasibility only.
-- Later objective: maximize `sum((w_p * P[i,j] + w_s * S[i,j]) * x[i,j])`,
-  after the coefficients are agreed.
+- Milestone 2 objective: maximize `sum((w_p * P[i,j] + w_s * S[i,j]) * x[i,j])`.
+  Weights are (1,0), (0,1), or (0.5,0.5); see `solver_spec.md` for scoring.
 - Exclude a previous complete allocation A using
   `sum(x[i,j] for (i,j) in A) <= student_count - 1`.
   This simplified cut relies on full allocation.
@@ -126,17 +126,18 @@ Completion gate: focused tests and lint pass, actual results recorded below.
 
 ## Milestone 2 — preference and skill objectives
 
-Files: `solvers.py`, `metrics.py`, `tests/test_solvers.py`,
-`tests/test_metrics.py`, `solver_spec.md`, analytical note documentation.
+Files: `solvers.py`, `metrics.py`, `tests/test_bilp_objectives.py`,
+`tests/test_bilp_feasibility.py`, `tests/test_metrics.py`, `solver_spec.md`,
+`analytical_formulation.md`, and this plan.
 
-- [ ] Agree scoring formulas, normalization, weights, and unranked policy.
-- [ ] Implement the three small concrete strategies' utility methods.
-- [ ] Implement `calculate_assignment_skill_fit` once and reuse it.
-- [ ] Add the weighted objective to the shared solve implementation.
-- [ ] Test known optimal values, unranked/no preferences, unequal list lengths,
+- [x] Agree scoring formulas, normalization, weights, and unranked policy.
+- [x] Implement the three small concrete strategies' utility methods.
+- [x] Implement `calculate_assignment_skill_fit` once and reuse it.
+- [x] Add the weighted objective to the shared solve implementation.
+- [x] Test known optimal values, unranked/no preferences, unequal list lengths,
   missing skills, overqualification, and projects without requirements.
-- [ ] Compare tiny examples against exhaustive enumeration in tests.
-- [ ] Record formulas and passing checks. No Team A changes.
+- [x] Compare tiny examples against exhaustive enumeration in tests.
+- [x] Record formulas and passing checks. No Team A changes.
 
 ## Milestone 3 — distinct alternatives
 
@@ -283,3 +284,39 @@ risks, any revised decision, and the next unchecked action.
   so feasibility and scoring can be reviewed independently.
 - Existing untracked `docs/AGENTS.md` is user-provided guidance and is not staged
   as part of the implementation. No push is authorized.
+
+### 2026-10-22 — Milestone 2 implementation
+
+- Milestone 1 committed as `9bcf5a0` before starting scoring changes.
+- User authorized Milestone 2 following the explicit scoring proposal; formulas
+  and rationale are now recorded in solver_spec.md.
+- Added three concrete strategies, a shared cohort-normalized preference helper,
+  and the weighted maximization objective. Hard constraints remain unchanged.
+- Implemented individual skill fit once in metrics.py and populate assignment
+  fit/gaps. Aggregate metrics remain unimplemented and labeled accordingly.
+- Preserve FEASIBLE success status; objective values are real verified scores,
+  and optimality_proven requires both CBC/PuLP status fields to prove optimality.
+- Updated the original zero-utility test strategy for the new shared solve flow;
+  no hard-constraint assertions removed. Removed only the skill-fit xfail now
+  that its original assertion passes.
+- Added scoring boundaries and independent exhaustive enumeration (27 possible
+  allocations each) across all strategies, locks, and mandatory coverage. Tests
+  compare objective values rather than assuming a tie order.
+
+- Verification using `/private/tmp/tech5-solver-venv/bin/python`:
+  - `-m pytest -q -p no:cacheprovider tests/test_bilp_objectives.py
+    tests/test_bilp_feasibility.py tests/test_metrics.py`:
+    **60 passed, 3 xfailed** (26 new objective cases, 33 feasibility cases,
+    and the original now-passing skill-fit case).
+  - `-m pytest -q -p no:cacheprovider --tb=short`:
+    **500 passed, 4 failed, 11 xfailed in 2.37s**. The four failures remain
+    `test_real_engine_accepts_capacity_boundaries` (zero-minimum, at-minimum,
+    at-maximum, equal-bounds), all from unimplemented execute_run. No new failures.
+- The only removed xfail is calculate_assignment_skill_fit. The remaining
+  unfinished features are not hidden or marked implemented.
+- Milestone 2 includes only objectives and individual assignment skill metadata;
+  no alternatives, aggregate indicators, engine registration, or UI changes.
+- Commit this milestone locally after final lint/format/diff checks; no push.
+
+- Final quality checks passed: `ruff check app tests run.py`,
+  `ruff format --check app tests run.py` (42 files), and `git diff --check`.

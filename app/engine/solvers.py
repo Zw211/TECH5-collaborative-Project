@@ -1,4 +1,4 @@
-"""Mathematical optimization solvers and Strategy Pattern skeleton for TECH5.
+"""BILP assignment strategies and engine orchestration skeleton for TECH5.
 
 In compliance with Section 5 and Section 8 of the TECH5 specification,
 Team B is responsible for proposing and implementing an approved assignment
@@ -66,8 +66,9 @@ class AssignmentStrategy(abc.ABC):
     ) -> tuple[str, list[models.Assignment], float | None, dict[str, Any]]:
         """Find one full allocation satisfying the confirmed hard constraints.
 
-        Milestone 1 uses a constant objective and does not call the utility
-        method. Skill-fit fields retain domain defaults, not calculated scores.
+        Maximize this strategy's utility while preserving all hard constraints.
+        A verified incumbent can be returned without proven optimality; inspect
+        diagnostics["optimality_proven"] before claiming an optimal result.
 
         Args:
             students: Complete cohort of students.
@@ -76,7 +77,7 @@ class AssignmentStrategy(abc.ABC):
             excluded_solutions: Must be empty in this milestone.
 
         Returns:
-            Status, verified assignments, None objective, and diagnostics.
+            Status, verified assignments, objective value, and diagnostics.
             Statuses: FEASIBLE, INFEASIBLE, INVALID_INPUT, NOT_SOLVED, FAILED.
             A feasible result does not claim preference or skill optimality.
 
@@ -96,7 +97,8 @@ class AssignmentStrategy(abc.ABC):
             errors=list(checked.errors),
             warnings=list(checked.warnings),
             infeasibility_reasons=list(checked.infeasibility_reasons),
-            objective_mode="FEASIBILITY_ONLY",
+            objective_mode=self.name,
+            optimality_proven=False,
             metrics_computed=False,
             solver_version=pulp.__version__,
         )
@@ -111,6 +113,21 @@ class AssignmentStrategy(abc.ABC):
             return status, [], None, diagnostics
 
         problem, variables = _build_feasibility_model(students, projects, locks)
+        max_preferences = max(len(student.preferences) for student in students)
+        utilities = {
+            (student.id, project.id): self.calculate_cost_or_utility(
+                student, project, max_preferences
+            )
+            for student in students
+            for project in projects
+        }
+        problem.setObjective(
+            pulp.lpSum(
+                utilities[pair] * variable
+                for pair, variable in variables.items()
+            )
+        )
+        diagnostics["max_preferences"] = max_preferences
         diagnostics["variables_count"] = len(variables)
         diagnostics["constraints_count"] = len(problem.constraints)
         diagnostics["time_limit_seconds"] = (
@@ -161,8 +178,26 @@ class AssignmentStrategy(abc.ABC):
         except ValueError as error:
             diagnostics["errors"].append(str(error))
             return "FAILED", [], None, diagnostics
+        project_by_id = {project.id: project for project in projects}
+        student_by_id = {student.id: student for student in students}
+        for assignment in assignments:
+            fit, unmet = metrics.calculate_assignment_skill_fit(
+                student_by_id[assignment.student_id],
+                project_by_id[assignment.project_id],
+            )
+            assignment.skill_fit_score = fit
+            assignment.unmet_requirements = unmet
+        # Sum the verified discrete choices, including a valid all-zero score.
+        objective = sum(
+            utilities[a.student_id, a.project_id] for a in assignments
+        )
         diagnostics["assignment_verified"] = True
-        return "FEASIBLE", assignments, None, diagnostics
+        diagnostics["assignment_skill_fit_computed"] = True
+        diagnostics["optimality_proven"] = (
+            problem.status == pulp.LpStatusOptimal
+            and problem.sol_status == pulp.LpSolutionOptimal
+        )
+        return "FEASIBLE", assignments, objective, diagnostics
 
 
 def _build_feasibility_model(
@@ -171,13 +206,12 @@ def _build_feasibility_model(
     locks: list[models.FixedAssignment],
 ) -> tuple[pulp.LpProblem, dict[tuple[str, str], pulp.LpVariable]]:
     """Build the binary hard constraints without preference or skill scoring."""
-    problem = pulp.LpProblem("assignment_feasibility", pulp.LpMinimize)
+    problem = pulp.LpProblem("assignment", pulp.LpMaximize)
     variables = {
         (student.id, project.id): pulp.LpVariable(f"x_{i}_{j}", cat="Binary")
         for i, student in enumerate(students)
         for j, project in enumerate(projects)
     }
-    problem += pulp.lpSum([])  # Constant zero: find any feasible allocation.
     for student in students:
         problem += (
             pulp.lpSum(
@@ -284,6 +318,72 @@ def _verify_assignment(
     for lock in locks:
         if assigned.get(lock.student_id) != lock.project_id:
             raise ValueError(f"Fixed assignment changed for {lock.student_id}.")
+
+
+def _preference_utility(
+    student: models.Student,
+    project: models.Project,
+    max_preferences: int,
+) -> float:
+    """Normalize rank using the longest preference list in this cohort."""
+    rank = student.get_preference_rank(project.id)
+    if rank is None or max_preferences == 0:
+        return 0.0
+    return (max_preferences - rank + 1) / max_preferences
+
+
+class PreferenceOrientedSolver(AssignmentStrategy):
+    """Maximize normalized preference satisfaction."""
+
+    def __init__(self) -> None:
+        """Set the existing preference strategy key."""
+        super().__init__("PREFERENCE", "Maximize preference satisfaction")
+
+    def calculate_cost_or_utility(
+        self,
+        student: models.Student,
+        project: models.Project,
+        max_preferences: int,
+    ) -> float:
+        """Return preference utility; unranked projects score zero."""
+        return _preference_utility(student, project, max_preferences)
+
+
+class SkillFitOrientedSolver(AssignmentStrategy):
+    """Maximize average individual requirement fit across assigned pairs."""
+
+    def __init__(self) -> None:
+        """Set the existing skill-fit strategy key."""
+        super().__init__("SKILL_FIT", "Maximize individual skill fit")
+
+    def calculate_cost_or_utility(
+        self,
+        student: models.Student,
+        project: models.Project,
+        max_preferences: int,
+    ) -> float:
+        """Return capped proficiency-ratio fit from the shared metric."""
+        fit, _ = metrics.calculate_assignment_skill_fit(student, project)
+        return fit
+
+
+class BalancedTradeoffSolver(AssignmentStrategy):
+    """Give preference and skill-fit utility equal weight."""
+
+    def __init__(self) -> None:
+        """Set the existing balanced strategy key."""
+        super().__init__("BALANCED", "Equal preference and skill-fit weights")
+
+    def calculate_cost_or_utility(
+        self,
+        student: models.Student,
+        project: models.Project,
+        max_preferences: int,
+    ) -> float:
+        """Return half preference utility plus half individual skill fit."""
+        preference = _preference_utility(student, project, max_preferences)
+        fit, _ = metrics.calculate_assignment_skill_fit(student, project)
+        return 0.5 * preference + 0.5 * fit
 
 
 class AssignmentEngine(contract.AssignmentEngineContract):

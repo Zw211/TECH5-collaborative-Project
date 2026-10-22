@@ -23,6 +23,11 @@ def calculate_assignment_skill_fit(
     evaluates how well the candidate student satisfies the required technical
     skills of the target project.
 
+    Mandatory and optional requirements have equal weight in this score.
+    Input levels must have passed domain validation. Missing skills count as
+    zero; exceeding a requirement gives no extra credit. This individual score
+    does not decide mandatory team coverage.
+
     Args:
         student: The student under evaluation.
         project: The project under evaluation.
@@ -30,16 +35,18 @@ def calculate_assignment_skill_fit(
     Returns:
         A tuple of (skill_fit_score [0.0, 1.0], list_of_unmet_skill_ids).
         Projects with no requirements have score 1.0 and no unmet skills.
-
-    Raises:
-        NotImplementedError: Scoring nonempty requirements is still unfinished.
     """
     if not project.requirements:
         return 1.0, []
 
-    raise NotImplementedError(
-        "TODO (Team B): Implement calculate_assignment_skill_fit"
-    )
+    scores = []
+    unmet = []
+    for requirement in project.requirements:
+        level = student.get_skill_level(requirement.skill_id)
+        scores.append(min(level / requirement.minimum_level, 1.0))
+        if level < requirement.minimum_level:
+            unmet.append(requirement.skill_id)
+    return sum(scores) / len(scores), unmet
 
 
 def calculate_gini(values: list[float]) -> float:

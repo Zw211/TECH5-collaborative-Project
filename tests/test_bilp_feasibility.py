@@ -23,8 +23,8 @@ class FeasibilityStrategy(solvers.AssignmentStrategy):
         project: models.Project,
         max_preferences: int,
     ) -> float:
-        """Fail if milestone 1 unexpectedly starts calculating utilities."""
-        raise AssertionError("Milestone 1 must not call utility scoring")
+        """Keep hard-constraint tests independent of scoring choices."""
+        return 0.0
 
 
 def assert_feasible(
@@ -39,7 +39,7 @@ def assert_feasible(
     )
     assert (students, projects, locks) == before
     assert status == "FEASIBLE", diagnostics
-    assert objective is None
+    assert objective == 0.0
     assert diagnostics["assignment_verified"] is True
     assert diagnostics["metrics_computed"] is False
     assert diagnostics["variables_count"] == len(students) * len(projects)
@@ -258,7 +258,8 @@ def test_solver_termination_and_extraction(
         [models.Student("S", "S")], [models.Project("P", "P")]
     )
     assert status == expected
-    assert objective is None
+    assert objective == (0.0 if expected == "FEASIBLE" else None)
+    assert info["optimality_proven"] is False
     assert bool(assignments) is (expected == "FEASIBLE")
     if mode in ("stopped", "unknown", "incumbent"):
         assert info["warnings"]

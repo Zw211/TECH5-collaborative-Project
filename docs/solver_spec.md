@@ -71,15 +71,41 @@ The proposed mathematical structure is:
 
 maximize sum((w_p * P[i,j] + w_s * S[i,j]) * x[i,j])
 
-The following decisions remain open:
-- Exact preference scoring function
-- Exact skill compatibility scoring function
-- Score normalization
-- Relative objective weights
-- Handling of unranked projects
-- Supported strategy keys
+### Milestone 2 scoring baseline (2026-10-22)
 
-Do not silently invent or finalize these decisions. Inspect the repository for existing definitions and report unresolved questions.
+The user authorized Milestone 2 after the following scoring proposal. These are
+Team B's preliminary implementation rules; instructor approval remains pending.
+
+Let M be the maximum number of ranked preferences submitted by any student in
+this run. For a ranked project with rank r, P[i,j] = (M - r + 1) / M. Unranked
+projects score 0. When M=0, all preference scores are 0 (no division). Validation
+already requires contiguous positive ranks. Use one cohort-wide M so the same
+rank gets the same utility even when students submit different list lengths.
+For M=3, ranks 1/2/3 score 1, 2/3, 1/3; unranked projects score 0.
+
+S[i,j] is the arithmetic mean over all project requirements of
+min(student_level / required_level, 1). Missing skills have level 0. Mandatory
+and optional requirements have equal scoring weight. Projects without any
+requirements score 1, preserving existing behavior. The unmet list contains
+skills whose levels fall below the requirement, in requirement order.
+
+| Strategy key | Preference weight | Skill-fit weight |
+| --- | --- | --- |
+| PREFERENCE | 1 | 0 |
+| SKILL_FIT | 0 | 1 |
+| BALANCED | 0.5 | 0.5 |
+
+Maximize the sum of pair utilities across assignments, not their average. Since
+allocation is exact, dividing by cohort size would not change the optimum.
+Pair utilities range from 0 to 1 and a run's objective from 0 to cohort size.
+All hard constraints are unchanged; a high score never excuses a violation.
+An individual may lack mandatory skills when other assigned members cover them.
+
+Limitations: equal normalized weights are a transparent baseline, not evidence
+of an ideal trade-off. Changing M changes rank spacing. A no-requirement project
+scores full skill fit and may be favored by skill-oriented objectives. Rank
+inequality is not optimized. Equal-score solutions have no guaranteed tie order;
+no tie-breaking objective or multiple-alternative logic is implemented.
 
 ## Alternative Solutions
 
@@ -133,7 +159,7 @@ Document the mathematical assumptions, scoring decisions, solver library, altern
 
 Keep this specification synchronized with implemented behavior.
 
-## Milestone 1 implementation (2026-10-22)
+## Milestone 1 implementation (historical snapshot, 2026-10-22)
 
 `AssignmentStrategy.solve` now solves the confirmed hard constraints with PuLP
 3.3.0 and its bundled CBC. It uses the existing 15-second configuration limit.
@@ -173,3 +199,24 @@ variable count excludes PuLP's internal constant-objective dummy variable.
 Instructor approval remains pending. Application execution still reaches the
 existing engine skeleton/mock fallback; this milestone proves the standalone
 hard-constraint solver, not production application integration.
+
+
+## Milestone 2 implementation (2026-10-22)
+
+Concrete PreferenceOrientedSolver, SkillFitOrientedSolver, and
+BalancedTradeoffSolver now supply utilities to the same hard-constraint model.
+The solver maximizes their weighted sum and returns the score recomputed from
+verified assignment choices. A zero score is valid; failure results still return
+None. The tuple success status remains FEASIBLE. Only diagnostics with
+optimality_proven=True establish optimality, requiring both PuLP status fields
+to be optimal. A verified interrupted incumbent retains its score and a warning.
+
+Assignments now carry calculated skill_fit_score and unmet_requirements using
+the shared metrics function. assignment_skill_fit_computed=True marks this;
+metrics_computed=False still means aggregate solution indicators are unfinished.
+The strategy key and cohort max_preferences are recorded in diagnostics.
+
+Only the skill-fit function in metrics.py is completed. Gini, solution indicators,
+comparisons, strategy registration in AssignmentEngine, execute_run, and distinct
+alternatives remain future milestones. The original Milestone 1 regression suite
+uses a test-only zero-utility strategy; its expected successful score is now 0.0.
