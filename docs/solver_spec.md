@@ -3,7 +3,9 @@
 ## Status
 Proposed approach: Binary Integer Linear Programming (BILP).
 
-Instructor approval: Pending.
+Instructor approval: Received for Team B's BILP model, as reported by the
+student in this session. Code review and final combined integration testing
+remain required before merge.
 
 This document defines the proposed model for implementation planning and preliminary development. Do not treat unresolved assumptions as approved requirements.
 
@@ -56,7 +58,8 @@ is satisfied. This avoids an unnecessary activation variable while expressing
 the confirmed policy exactly. Qualification uses >= minimum_level.
 
 These baseline decisions were confirmed by the user on 2026-10-22 for preliminary
-feature-branch development. Instructor approval remains pending.
+feature-branch development. Instructor approval has since been received,
+as reported by the student.
 
 ### Fixed Assignments
 Administrative fixed assignments must be preserved throughout optimization and when generating alternative solutions.
@@ -74,7 +77,8 @@ maximize sum((w_p * P[i,j] + w_s * S[i,j]) * x[i,j])
 ### Milestone 2 scoring baseline (2026-10-22)
 
 The user authorized Milestone 2 after the following scoring proposal. These are
-Team B's preliminary implementation rules; instructor approval remains pending.
+Team B's implementation rules; instructor approval has since been received,
+as reported by the student.
 
 Let M be the maximum number of ranked preferences submitted by any student in
 this run. For a ranked project with rank r, P[i,j] = (M - r + 1) / M. Unranked
@@ -227,7 +231,8 @@ interruption diagnosis would require additional CBC log handling and is not
 implemented. Solver timing and decision-variable/constraint counts are recorded;
 variable count excludes PuLP's internal constant-objective dummy variable.
 
-Instructor approval remains pending. Application execution still reaches the
+At Milestone 1, instructor approval was still pending. Application execution
+at that stage still reached the
 existing engine skeleton/mock fallback; this milestone proves the standalone
 hard-constraint solver, not production application integration.
 
@@ -257,8 +262,8 @@ uses a test-only zero-utility strategy; its expected successful score is now 0.0
 Exclusions and the private alternative loop are now implemented. Earlier
 milestone descriptions are historical snapshots; nonempty exclusions no longer
 raise NotImplementedError. Aggregate metrics, engine registration, execute_run,
-and application integration are still future work. Instructor approval remains
-pending. No contract, domain, UI, or persistence interface changed.
+and application integration were still future work at Milestone 3. Instructor
+approval was pending at that stage; see the current status above. No contract, domain, UI, or persistence interface changed.
 
 
 ## Milestone 4 — indicators and domain solutions

@@ -33,13 +33,18 @@ merely because code exists.
 - [x] Milestone 3: up to K distinct assignments.
 - [x] Milestone 4: metrics and complete domain results.
 - [x] Milestone 5: engine contract and persistence — ready for review; Team A UI issue remains.
-- [ ] Milestone 6: automated real-application integration.
-- [ ] Instructor approval, review, and final passing checks before merging.
+- [x] Milestone 6: automated integration against the current application.
+- [ ] Final integration with Team A after their reviewed changes are available.
+- [x] Instructor approval for Team B's BILP model (reported by the student).
+- [ ] Code review and final passing checks before merging.
 
-**Current task:** Milestone 5 is ready for review under the user-approved
-exception for the Team A-owned HTML assertion documented below. The full suite
-is not green. Next implementation milestone is Milestone 6, on request; Team A
-must correct its own test on its branch. Do not modify or skip that test.
+**Status:** Integrasjon verifisert mot nåværende applikasjon; endelig integrasjon med Team A gjenstår.
+
+Milestone 6 is complete for the current checkout, not a certification of Team A's
+future changes. The full suite is not green: the known Team A HTML assertion
+remains unchanged. Next: review this work and later verify the combined branches
+with explicit permission. Instructor approval has been received, as reported
+by the student in this session.
 
 ## Architecture to preserve
 
@@ -59,7 +64,7 @@ Page rendering alone is not solver proof.
 
 | Item | Evidence / proposed policy | State |
 | --- | --- | --- |
-| Instructor approval | Specific Team B BILP model | Pending |
+| Instructor approval | Specific Team B BILP model | Received; reported by the student in this session |
 | Allocation | Existing interface and validation use exactly one project per student; never fall back to partial allocation | Confirmed 2026-10-22 |
 | Capacities | Enforce every positive minimum; zero-minimum projects may stay unused | Confirmed 2026-10-22 |
 | Mandatory skills | Team coverage by at least one sufficiently qualified member per skill, required when a project is used | Confirmed 2026-10-22 |
@@ -188,19 +193,29 @@ failure or invalid extraction -> FAILED. Preserve exact solver termination in
 diagnostics. Never infer optimality
 from a coarse status or confuse timeout with infeasibility.
 
-## Milestone 6 — real application integration
+## Milestone 6 — integration against the current application
 
-Files: `tests/test_component_integration.py`, Team B test fixtures,
-`docs/testing_and_quality.md`, `docs/reproducible_demonstration.md`.
+Files: `tests/test_team_b_application.py`, this plan, and
+`docs/team_b_integration_verification.md`. Existing Team A tests and shared
+application documentation remain unchanged.
 
-- [ ] Flask-client workflow: seed, run, view, compare, lock, rerun, infeasible run.
-- [ ] Disable mock fallback by making mock execution fail in real-engine tests.
-- [ ] Verify persisted assignments against all hard constraints.
-- [ ] Exercise recommendations and required indicator keys without Team A edits.
-- [ ] Report WARNING presentation incompatibilities to Team A if needed.
-- [ ] Remove obsolete xfails only when their behavior actually works.
-- [ ] Run full pytest suite, Ruff lint, and Ruff format checks; record outcomes.
-- [ ] Document reproducible demonstration and known limitations.
+- [x] Flask-client workflow: seed, run, view, compare, lock, rerun, infeasible run.
+- [x] Fail tests if mock execution or comparison fallback is used.
+- [x] Independently verify persisted allocations, capacities, mandatory skills,
+  fixed assignments, distinctness, and unchanged historical results.
+- [x] Exercise all three strategies, recommendations, and required indicator keys.
+- [x] Verify WARNING retains a real solution; document UI presentation for Team A.
+- [x] Check existing xfails: none remain; no skips or xfails added or removed here.
+- [x] Run full pytest, Ruff lint, and formatting checks; record actual results.
+- [x] Document reproducible automated verification and limitations.
+
+### Later final integration (not performed by this milestone)
+
+After Team A's PR is reviewed and merged, obtain explicit permission to create
+an integration branch from updated main and bring in Team B's changes. Rerun
+integration tests, full pytest, and Ruff against the combined code. Coordinate
+any Team A edits with their owners. Merge only after instructor approval,
+review, and passing checks. This milestone does not authorize a push or merge.
 
 ## Verification and change log
 
@@ -467,3 +482,32 @@ risks, any revised decision, and the next unchecked action.
   text or parsed visible text, keeping template autoescaping enabled. No fix or
   skip is applied by Team B. This note is the review handoff; no external message
   has been sent to Team A.
+
+### 2026-10-22 — Milestone 6 completed against current application
+
+- Added five Team B test cases: lifecycle for each of three strategies,
+  infeasible application run, and WARNING after one real CBC solution followed
+  by a simulated interrupted solve. Tests use temporary SQLite databases and
+  forbid mock execution/comparison fallback. No production code changed.
+- Last executed focused Team B suite: **190 passed in 3.16s**.
+- Last executed full suite: **596 passed, 1 failed in 5.69s**, no skips or xfails.
+  Sole failure remains the Team A raw `&` versus escaped `&amp;` assertion at
+  `tests/test_visualization_component.py:881`; see the Milestone 5 handoff.
+- Ruff check: **all checks passed**. Ruff format check: **47 files already
+  formatted**. Commands, coverage, and limitations are in the dedicated
+  [Team B verification guide](team_b_integration_verification.md).
+- Team A follow-up: WARNING renders and retains accessible solutions, but the
+  trigger route uses a danger flash and the detail page a generic status badge.
+  Team A should review presentation; this is not a solver failure or evidence
+  that their application needs rebuilding. No external message was sent.
+- Diff reviewed: only the new Team B test file, this plan, and the new Team B
+  guide are included. User-owned untracked docs/AGENTS.md remains unstaged.
+- Local milestone commit authorized. No branch switch, push, or merge.
+
+### Instructor approval update
+
+The student reports that instructor approval for Team B's BILP model has been
+received. Current status and specification now reflect this; earlier milestone
+logs record the state at that time. This does not authorize a branch switch,
+push, or merge. Code review, resolution of the known UI assertion, and final
+integration testing with Team A remain outstanding.
