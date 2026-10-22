@@ -9,8 +9,13 @@ that implements AssignmentEngineContract.
 """
 
 import abc
+import math
+import time
 from typing import Any
 
+import pulp
+
+from app import config
 from app.contract import contract
 from app.domain import models, validation
 from app.engine import metrics
@@ -59,31 +64,226 @@ class AssignmentStrategy(abc.ABC):
         fixed_assignments: list[models.FixedAssignment] | None = None,
         excluded_solutions: list[list[tuple[str, str]]] | None = None,
     ) -> tuple[str, list[models.Assignment], float | None, dict[str, Any]]:
-        """Solves the assignment problem under this strategy's formulation.
+        """Find one full allocation satisfying the confirmed hard constraints.
 
-        In accordance with Section 8 of the specification, must:
-        - Assign students to projects respecting capacities [min_cap, max_cap].
-        - Enforce each student receives exactly one project allocation.
-        - Strictly preserve pre-allocated fixed assignments.
-        - Respect excluded allocations when generating distinct alternatives.
+        Milestone 1 uses a constant objective and does not call the utility
+        method. Skill-fit fields retain domain defaults, not calculated scores.
 
         Args:
-            students: List of students in the cohort.
-            projects: List of available semester projects.
-            fixed_assignments: Pre-assigned student-project pairs that must
-                hold.
-            excluded_solutions: Previous solution allocations to cut out.
+            students: Complete cohort of students.
+            projects: Projects with capacities and team skill requirements.
+            fixed_assignments: Active administrative locks of every status.
+            excluded_solutions: Must be empty in this milestone.
 
         Returns:
-            A tuple of (solver_status, assignments, objective_value,
-            diagnostics).
+            Status, verified assignments, None objective, and diagnostics.
+            Statuses: FEASIBLE, INFEASIBLE, INVALID_INPUT, NOT_SOLVED, FAILED.
+            A feasible result does not claim preference or skill optimality.
 
         Raises:
-            NotImplementedError: To be implemented by Team B.
+            NotImplementedError: Nonempty exclusions are not supported yet.
         """
-        raise NotImplementedError(
-            f"TODO (Team B): Implement solver logic for strategy '{self.name}'"
+        if excluded_solutions:
+            raise NotImplementedError(
+                "Alternative exclusions are not implemented"
+            )
+        locks = fixed_assignments or []
+        checked = validation.validate_cohort(
+            students, projects, fixed_assignments=locks
         )
+        diagnostics = contract.DiagnosticInfo().to_dict()
+        diagnostics.update(
+            errors=list(checked.errors),
+            warnings=list(checked.warnings),
+            infeasibility_reasons=list(checked.infeasibility_reasons),
+            objective_mode="FEASIBILITY_ONLY",
+            metrics_computed=False,
+            solver_version=pulp.__version__,
+        )
+        structural_errors = [
+            error
+            for error in checked.errors
+            if error not in checked.infeasibility_reasons
+        ]
+        if not checked.is_valid or not checked.is_feasible:
+            status = "INVALID_INPUT" if structural_errors else "INFEASIBLE"
+            diagnostics["solver_status"] = "NOT_RUN"
+            return status, [], None, diagnostics
+
+        problem, variables = _build_feasibility_model(students, projects, locks)
+        diagnostics["variables_count"] = len(variables)
+        diagnostics["constraints_count"] = len(problem.constraints)
+        diagnostics["time_limit_seconds"] = (
+            config.Config.PULP_TIME_LIMIT_SECONDS
+        )
+        started = time.perf_counter()
+        try:
+            problem.solve(
+                pulp.PULP_CBC_CMD(
+                    msg=False, timeLimit=config.Config.PULP_TIME_LIMIT_SECONDS
+                )
+            )
+        except (pulp.PulpSolverError, OSError) as error:
+            diagnostics["solver_status"] = "ERROR"
+            diagnostics["errors"].append(str(error))
+            return "FAILED", [], None, diagnostics
+        finally:
+            diagnostics["solve_time_seconds"] = time.perf_counter() - started
+
+        diagnostics["solver_status"] = pulp.LpStatus[problem.status]
+        diagnostics["solution_status"] = pulp.LpSolution[problem.sol_status]
+        if problem.status == pulp.LpStatusInfeasible:
+            diagnostics["infeasibility_reasons"].append(
+                "CBC proved that the hard constraints cannot all be satisfied."
+            )
+            return "INFEASIBLE", [], None, diagnostics
+        if problem.status == pulp.LpStatusUnbounded:
+            diagnostics["errors"].append("Unexpected unbounded binary model.")
+            return "FAILED", [], None, diagnostics
+        # CBC can report Optimal with an integer incumbent after interruption.
+        # Retain both statuses; read only an explicitly reported solution.
+        if problem.sol_status not in (
+            pulp.LpSolutionOptimal,
+            pulp.LpSolutionIntegerFeasible,
+        ):
+            diagnostics["warnings"].append(
+                "No verified solution was obtained; the solver may have hit "
+                "its time limit or stopped for another reason."
+            )
+            return "NOT_SOLVED", [], None, diagnostics
+        if problem.sol_status != pulp.LpSolutionOptimal:
+            diagnostics["warnings"].append(
+                "Solver stopped with an incumbent; optimality is not proven."
+            )
+        try:
+            assignments = _extract_assignments(variables, students, locks)
+            _verify_assignment(students, projects, locks, assignments)
+        except ValueError as error:
+            diagnostics["errors"].append(str(error))
+            return "FAILED", [], None, diagnostics
+        diagnostics["assignment_verified"] = True
+        return "FEASIBLE", assignments, None, diagnostics
+
+
+def _build_feasibility_model(
+    students: list[models.Student],
+    projects: list[models.Project],
+    locks: list[models.FixedAssignment],
+) -> tuple[pulp.LpProblem, dict[tuple[str, str], pulp.LpVariable]]:
+    """Build the binary hard constraints without preference or skill scoring."""
+    problem = pulp.LpProblem("assignment_feasibility", pulp.LpMinimize)
+    variables = {
+        (student.id, project.id): pulp.LpVariable(f"x_{i}_{j}", cat="Binary")
+        for i, student in enumerate(students)
+        for j, project in enumerate(projects)
+    }
+    problem += pulp.lpSum([])  # Constant zero: find any feasible allocation.
+    for student in students:
+        problem += (
+            pulp.lpSum(
+                variables[student.id, project.id] for project in projects
+            )
+            == 1
+        )
+    for project in projects:
+        headcount = pulp.lpSum(
+            variables[student.id, project.id] for student in students
+        )
+        problem += headcount >= project.min_capacity
+        problem += headcount <= project.max_capacity
+        for requirement in project.requirements:
+            if not requirement.is_mandatory:
+                continue
+            qualified_count = pulp.lpSum(
+                variables[student.id, project.id]
+                for student in students
+                if student.get_skill_level(requirement.skill_id)
+                >= requirement.minimum_level
+            )
+            # Positive headcount requires at least one qualified team member.
+            # Empty optional projects need no coverage; positive minima remain.
+            problem += headcount <= project.max_capacity * qualified_count
+    for lock in locks:
+        problem += variables[lock.student_id, lock.project_id] == 1
+    return problem, variables
+
+
+def _extract_assignments(
+    variables: dict[tuple[str, str], pulp.LpVariable],
+    students: list[models.Student],
+    locks: list[models.FixedAssignment],
+) -> list[models.Assignment]:
+    """Check binary values and translate selected pairs to domain objects."""
+    student_by_id = {student.id: student for student in students}
+    fixed_pairs = {(lock.student_id, lock.project_id) for lock in locks}
+    assignments = []
+    for (student_id, project_id), variable in variables.items():
+        value = variable.value()
+        if (
+            value is None
+            or not math.isfinite(value)
+            or min(abs(value), abs(value - 1)) > 1e-6
+        ):
+            raise ValueError(
+                "Solver returned missing or nonbinary assignments."
+            )
+        if value > 0.5:
+            assignments.append(
+                models.Assignment(
+                    student_id=student_id,
+                    project_id=project_id,
+                    is_fixed=(student_id, project_id) in fixed_pairs,
+                    preference_rank=student_by_id[
+                        student_id
+                    ].get_preference_rank(project_id),
+                )
+            )
+    return assignments
+
+
+def _verify_assignment(
+    students: list[models.Student],
+    projects: list[models.Project],
+    locks: list[models.FixedAssignment],
+    assignments: list[models.Assignment],
+) -> None:
+    """Recheck the returned allocation independently of solver expressions."""
+    student_by_id = {student.id: student for student in students}
+    teams: dict[str, list[models.Student]] = {p.id: [] for p in projects}
+    assigned: dict[str, str] = {}
+    for assignment in assignments:
+        if (
+            assignment.student_id not in student_by_id
+            or assignment.project_id not in teams
+            or assignment.student_id in assigned
+        ):
+            raise ValueError(
+                "Unknown reference or duplicate student assignment."
+            )
+        assigned[assignment.student_id] = assignment.project_id
+        teams[assignment.project_id].append(
+            student_by_id[assignment.student_id]
+        )
+    if set(assigned) != set(student_by_id):
+        raise ValueError("Solver did not allocate every student exactly once.")
+    for project in projects:
+        team = teams[project.id]
+        if not project.min_capacity <= len(team) <= project.max_capacity:
+            raise ValueError(f"Capacity violation for project {project.id}.")
+        for requirement in project.requirements:
+            if (
+                team
+                and requirement.is_mandatory
+                and not any(
+                    student.get_skill_level(requirement.skill_id)
+                    >= requirement.minimum_level
+                    for student in team
+                )
+            ):
+                raise ValueError(f"Mandatory skill missing for {project.id}.")
+    for lock in locks:
+        if assigned.get(lock.student_id) != lock.project_id:
+            raise ValueError(f"Fixed assignment changed for {lock.student_id}.")
 
 
 class AssignmentEngine(contract.AssignmentEngineContract):
