@@ -26,7 +26,7 @@
 
   <div class="card-body">
     <!-- Diagnostics & Warnings Panel -->
-    <div style="background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.5rem;">
+    <div style="background: var(--raised); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.5rem;">
       <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">Run Diagnostics & Solver Notes:</h3>
       {% if run.diagnostics.get('message') %}
         <p style="color: var(--text-main); margin-bottom: 0.5rem;"><strong>{{ run.diagnostics.get('message') }}</strong></p>
@@ -48,7 +48,7 @@
       {% if run.diagnostics.get('warnings') %}
         <div style="margin-top: 0.5rem;">
           <strong style="color: var(--warning); font-size: 0.88rem;">Notices & Warnings:</strong>
-          <ul style="color: #b45309; margin-left: 1.5rem; font-size: 0.88rem;">
+          <ul style="color: var(--amber); margin-left: 1.5rem; font-size: 0.88rem;">
             {% for w in run.diagnostics.get('warnings') %}
               <li>{{ w }}</li>
             {% endfor %}
@@ -64,10 +64,10 @@
 
     <!-- Recommendations Teaser -->
     {% if recommendations %}
-      <div style="background: var(--primary-light); border: 1px solid #bfdbfe; border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+      <div style="background: var(--primary-light); border: 1px solid var(--line-soft); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
         <div>
-          <strong style="color: var(--primary); font-size: 1rem;">&#128161; Decision-Support Recommendations Available</strong>
-          <p style="color: #1e3a8a; font-size: 0.88rem; margin-top: 0.2rem;">
+          <strong style="color: var(--primary); font-size: 1rem;">Decision-Support Recommendations Available</strong>
+          <p style="color: var(--body); font-size: 0.88rem; margin-top: 0.2rem;">
             Inspect transparent policy recommendations (Student Preference vs Project Quality vs Egalitarian Fairness).
           </p>
         </div>
@@ -99,7 +99,7 @@
           {% set cap = s.indicators.get('capacity', {}) %}
 
           <div class="card" style="margin-bottom: 0;">
-            <div class="card-header" style="background: #f8fafc;">
+            <div class="card-header" style="background: var(--raised);">
               <div>
                 <h4 style="font-size: 1.05rem; font-weight: 700;">
                   Alternative #{{ s.alternative_number }}
@@ -113,30 +113,30 @@
 
             <div class="card-body">
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
-                <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
+                <div style="background: var(--paper); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">AVG SKILL FIT</div>
                   <div style="font-size: 1.3rem; font-weight: 700; color: var(--primary);">
                     {{ (eff.get('mean_skill_fit', 0.0) * 100)|round(1) }}%
                   </div>
                 </div>
 
-                <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
+                <div style="background: var(--paper); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">AVG PREF RANK</div>
                   <div style="font-size: 1.3rem; font-weight: 700; color: var(--success);">
                     #{{ fair.get('mean_rank', 'N/A') }}
                   </div>
                 </div>
 
-                <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
+                <div style="background: var(--paper); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">WORST RANK</div>
                   <div style="font-size: 1.2rem; font-weight: 700; color: var(--warning);">
                     #{{ fair.get('worst_rank', 'N/A') }}
                   </div>
                 </div>
 
-                <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
+                <div style="background: var(--paper); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">RANK GINI</div>
-                  <div style="font-size: 1.2rem; font-weight: 700; color: #475569;">
+                  <div style="font-size: 1.2rem; font-weight: 700; color: var(--body);">
                     {{ fair.get('rank_gini', 'N/A') }}
                   </div>
                 </div>

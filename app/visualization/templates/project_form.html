@@ -14,7 +14,7 @@
       <div class="grid-2">
         <div class="form-group">
           <label class="form-label" for="id">Project Identifier:</label>
-          <input type="text" id="id" name="id" class="form-control" value="{{ project.id if project else '' }}" required {% if project %}readonly style="background: #f1f5f9;"{% endif %} placeholder="e.g. P5">
+          <input type="text" id="id" name="id" class="form-control" value="{{ project.id if project else '' }}" required {% if project %}readonly style="background: var(--raised);"{% endif %} placeholder="e.g. P5">
           <span class="form-hint">Unique short code for the project.</span>
         </div>
 
@@ -45,7 +45,7 @@
 
       <div class="form-group" style="margin-top: 1rem;">
         <label class="form-label">Skill Requirements:</label>
-        <div style="background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem;">
+        <div style="background: var(--raised); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem;">
           <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 0.75rem;">
             Set a required proficiency level from 1 to 5 (0 = not required). A mandatory requirement needs a level and must be met by at least one assigned student.
           </p>

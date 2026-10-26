@@ -15,7 +15,7 @@
 
   <div class="card-body">
     <!-- Solution Selector Form -->
-    <form action="{{ url_for('visualization_web.compare_solutions') }}" method="GET" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.5rem; background: #f8fafc; border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md);">
+    <form action="{{ url_for('visualization_web.compare_solutions') }}" method="GET" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.5rem; background: var(--raised); border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md);">
       <div style="flex: 1; min-width: 250px;">
         <label class="form-label" for="sol1">Baseline Solution (A):</label>
         <select name="sol1" id="sol1" class="form-control">

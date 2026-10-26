@@ -18,7 +18,7 @@
       <span class="badge badge-success">Feasible &bull; Multi-Solution</span>
     </div>
     <div class="card-body">
-      <p style="color: #334155; margin-bottom: 1rem;">
+      <p style="color: var(--body); margin-bottom: 1rem;">
         10 students with varied technical competencies (Python, SQL, ML, Web, FinTech) and 4 projects (capacity 3 each = 12 total capacity). Demonstrates 3 distinct Pareto-optimal solutions highlighting the trade-off between student preference satisfaction and project skill fit.
       </p>
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='standard') }}" method="POST">
@@ -36,7 +36,7 @@
       <span class="badge badge-primary">Fixed Constraint</span>
     </div>
     <div class="card-body">
-      <p style="color: #334155; margin-bottom: 1rem;">
+      <p style="color: var(--body); margin-bottom: 1rem;">
         Standard cohort with student <strong>S02</strong> locked to Project <strong>P2</strong> (Cloud Data Pipeline) under a formal fellowship grant. Demonstrates strict preservation across all solutions and illustrates how fixing one student impacts outcomes for others.
       </p>
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='fixed') }}" method="POST">
@@ -54,7 +54,7 @@
       <span class="badge badge-danger">Infeasible</span>
     </div>
     <div class="card-body">
-      <p style="color: #334155; margin-bottom: 1rem;">
+      <p style="color: var(--body); margin-bottom: 1rem;">
         Reduces project capacities such that total available places (6) is strictly less than cohort size (10). Demonstrates graceful mathematical infeasibility detection and bottleneck diagnostic reporting without crashing.
       </p>
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='infeasible') }}" method="POST">
@@ -72,7 +72,7 @@
       <span class="badge badge-warning">Invalid Input</span>
     </div>
     <div class="card-body">
-      <p style="color: #334155; margin-bottom: 1rem;">
+      <p style="color: var(--body); margin-bottom: 1rem;">
         Contains 4 fixed assignments designated for Project P1 (which has a maximum capacity of 3). Demonstrates pre-solver validation error reporting and clear rejection of contradictory inputs.
       </p>
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='conflicting') }}" method="POST">
@@ -86,7 +86,7 @@
 
 <div class="card" style="margin-top: 1.5rem;">
   <div class="card-header">
-    <h2 class="card-title" style="color: var(--danger);">&#128465; Database Reset</h2>
+    <h2 class="card-title" style="color: var(--danger);">Database Reset</h2>
   </div>
   <div class="card-body" style="display: flex; justify-content: space-between; align-items: center;">
     <p style="color: var(--text-muted); margin: 0;">
