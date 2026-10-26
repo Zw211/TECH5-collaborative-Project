@@ -131,7 +131,7 @@ _PRIORITIES = [
         ranking=[UNRANKED, MEAN_RANK, WORST_RANK],
         context=[SKILL_FIT],
         advice=(
-            "Adopt Solution {alt} if student satisfaction, programme "
+            "Adopt Alternative {alt} if student satisfaction, programme "
             "morale, and minimizing student appeals are the primary "
             "administrative goals."
         ),
@@ -141,7 +141,7 @@ _PRIORITIES = [
         ranking=[SKILL_FIT, UNMET_SOFT],
         context=[MEAN_RANK],
         advice=(
-            "Adopt Solution {alt} when partner organizations or client "
+            "Adopt Alternative {alt} when partner organizations or client "
             "project deliverables demand rigorous technical and domain "
             "capabilities."
         ),
@@ -151,7 +151,7 @@ _PRIORITIES = [
         ranking=[RANK_GINI, RANK_VARIANCE, MEAN_RANK],
         context=[SKILL_FIT],
         advice=(
-            "Adopt Solution {alt} if the academic committee seeks a fair "
+            "Adopt Alternative {alt} if the academic committee seeks a fair "
             "compromise that avoids extreme individual disadvantage."
         ),
     ),

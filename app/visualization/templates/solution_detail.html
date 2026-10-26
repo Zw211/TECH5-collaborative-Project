@@ -36,7 +36,7 @@
 
   <div class="kpi-card">
     <span class="kpi-label">Rank Disparity (Gini)</span>
-    <span class="kpi-value" style="color: #475569;">
+    <span class="kpi-value" style="color: var(--body);">
       {{ fair.get('rank_gini', 'N/A') }}
     </span>
     <span class="kpi-sub">Variance: {{ fair.get('rank_variance', 'N/A') }}</span>
@@ -105,15 +105,15 @@
               </td>
               <td style="width: 170px;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <div style="flex: 1; background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
-                    <div style="background: {% if asg.skill_fit_score >= 0.8 %}var(--success){% elif asg.skill_fit_score >= 0.5 %}#3b82f6{% else %}var(--warning){% endif %}; width: {{ (asg.skill_fit_score * 100)|round }}%; height: 100%;"></div>
+                  <div style="flex: 1; background: var(--line-soft); height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="background: {% if asg.skill_fit_score >= 0.8 %}var(--success){% elif asg.skill_fit_score >= 0.5 %}var(--link){% else %}var(--warning){% endif %}; width: {{ (asg.skill_fit_score * 100)|round }}%; height: 100%;"></div>
                   </div>
                   <span style="font-weight: 600; font-size: 0.85rem;">{{ (asg.skill_fit_score * 100)|round }}%</span>
                 </div>
               </td>
               <td>
                 {% if asg.is_fixed %}
-                  <span class="badge badge-primary" title="Pre-allocated by fixed constraint">&#128274; FIXED LOCK</span>
+                  <span class="badge badge-primary" title="Pre-allocated by fixed constraint">FIXED LOCK</span>
                 {% endif %}
                 {% if asg.unmet_requirements %}
                   {% for u in asg.unmet_requirements %}
@@ -130,7 +130,7 @@
                       <input type="hidden" name="student_id" value="{{ asg.student_id }}">
                       <input type="hidden" name="project_id" value="{{ asg.project_id }}">
                       <button type="submit" class="btn btn-sm btn-secondary" title="Lock this pair and trigger rerun">
-                        &#128274; Lock & Rerun
+                        Lock & Rerun
                       </button>
                     </form>
                   {% else %}
@@ -160,7 +160,7 @@
             <span>{{ p_obj.title if p_obj else p_id }}</span>
             <span>{{ p_info.assigned_count }} / {{ p_info.max_capacity }}</span>
           </div>
-          <div style="background: #e2e8f0; height: 6px; border-radius: 3px; margin: 0.5rem 0; overflow: hidden;">
+          <div style="background: var(--line-soft); height: 6px; border-radius: 3px; margin: 0.5rem 0; overflow: hidden;">
             <div style="background: var(--primary); width: {{ p_info.utilization_pct }}%; height: 100%;"></div>
           </div>
           <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between;">

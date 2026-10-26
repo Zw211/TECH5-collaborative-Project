@@ -10,18 +10,18 @@
   <header>
     <nav class="navbar">
       <a href="{{ url_for('visualization_web.dashboard') }}" class="nav-brand">
-        TECH5 <span>Decision Support</span>
+        tech5 <span>Decision Support</span>
       </a>
 
       <ul class="nav-links">
-        <li><a href="{{ url_for('visualization_web.dashboard') }}">Dashboard</a></li>
-        <li><a href="{{ url_for('visualization_web.list_students') }}">Students</a></li>
-        <li><a href="{{ url_for('visualization_web.list_projects') }}">Projects</a></li>
-        <li><a href="{{ url_for('visualization_web.preferences_overview') }}">Preferences</a></li>
-        <li><a href="{{ url_for('visualization_web.list_fixed_assignments') }}">Fixed Locks</a></li>
-        <li><a href="{{ url_for('visualization_web.list_skills') }}">Skills</a></li>
-        <li><a href="{{ url_for('visualization_web.scenarios_page') }}">Scenarios</a></li>
-        <li><a href="{{ url_for('visualization_web.compare_solutions') }}">Compare</a></li>
+        <li><a href="{{ url_for('visualization_web.dashboard') }}"{% if request.endpoint == 'visualization_web.dashboard' %} class="active" aria-current="page"{% endif %}>Dashboard</a></li>
+        <li><a href="{{ url_for('visualization_web.list_students') }}"{% if request.endpoint == 'visualization_web.list_students' %} class="active" aria-current="page"{% endif %}>Students</a></li>
+        <li><a href="{{ url_for('visualization_web.list_projects') }}"{% if request.endpoint == 'visualization_web.list_projects' %} class="active" aria-current="page"{% endif %}>Projects</a></li>
+        <li><a href="{{ url_for('visualization_web.preferences_overview') }}"{% if request.endpoint == 'visualization_web.preferences_overview' %} class="active" aria-current="page"{% endif %}>Preferences</a></li>
+        <li><a href="{{ url_for('visualization_web.list_fixed_assignments') }}"{% if request.endpoint == 'visualization_web.list_fixed_assignments' %} class="active" aria-current="page"{% endif %}>Fixed Locks</a></li>
+        <li><a href="{{ url_for('visualization_web.list_skills') }}"{% if request.endpoint == 'visualization_web.list_skills' %} class="active" aria-current="page"{% endif %}>Skills</a></li>
+        <li><a href="{{ url_for('visualization_web.scenarios_page') }}"{% if request.endpoint == 'visualization_web.scenarios_page' %} class="active" aria-current="page"{% endif %}>Scenarios</a></li>
+        <li><a href="{{ url_for('visualization_web.compare_solutions') }}"{% if request.endpoint == 'visualization_web.compare_solutions' %} class="active" aria-current="page"{% endif %}>Compare</a></li>
       </ul>
 
       <div class="nav-role-switcher">
@@ -52,9 +52,5 @@
 
     {% block content %}{% endblock %}
   </main>
-
-  <footer class="footer">
-    <p>TECH5 Programming & Application Design &bull; NHH Norwegian School of Economics &bull; Integrated Assignment Support System</p>
-  </footer>
 </body>
 </html>

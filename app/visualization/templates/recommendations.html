@@ -3,11 +3,11 @@
 {% block title %}Decision Recommendations - TECH5{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+<div class="page-head">
   <div>
-    <h1 style="font-size: 1.6rem; font-weight: 700;">Transparent Decision Recommendations</h1>
-    <p style="color: var(--text-muted); margin-top: 0.25rem;">
-      Run <code>{{ run.id[:8] }}</code> &bull; Rigorously distinguishing calculated mathematical <strong>Evidence</strong> from policy-oriented <strong>Advice</strong>.
+    <h1 class="page-title">Transparent Decision Recommendations</h1>
+    <p class="page-lede">
+      Run <code>{{ run.id[:8] }}</code>. Calculated evidence is kept separate from policy advice.
     </p>
   </div>
   <a href="{{ url_for('visualization_web.view_run', run_id=run.id) }}" class="btn btn-sm btn-secondary">
@@ -17,115 +17,101 @@
 
 {% if recommendations %}
   {% for note in recommendations[0].notes %}
-    <div class="alert alert-info" style="margin-bottom: 1rem;">{{ note }}</div>
+    <div class="alert alert-info">{{ note }}</div>
   {% endfor %}
 
-  <div class="card">
+  <section class="card">
     <div class="card-header">
       <div>
         <h2 class="card-title">Evidence Across All Alternatives</h2>
-        <p style="color: var(--text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
-          Every indicator used below, for every alternative. The preferred feasible value in each row is highlighted.
-        </p>
+        <p class="card-lede">Every indicator used below, for every alternative. The preferred feasible value in each row is marked.</p>
       </div>
     </div>
-    <div class="card-body">
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
+    <div class="table-responsive">
+      <table class="data-table evidence-table">
+        <thead>
+          <tr>
+            <th scope="col">Indicator</th>
+            {% for cell in evidence_table[0].cells %}
+              <th scope="col">Alternative {{ cell.alternative }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in evidence_table %}
             <tr>
-              <th>Indicator</th>
-              {% for cell in evidence_table[0].cells %}
-                <th>Alternative #{{ cell.alternative }}</th>
+              <th scope="row" title="{{ row.description }}">{{ row.label }}</th>
+              {% for cell in row.cells %}
+                <td>
+                  {% if cell.best %}
+                    <span class="best-value">{{ cell.text }}<span class="visually-hidden"> (preferred)</span></span>
+                  {% else %}
+                    {{ cell.text }}
+                  {% endif %}
+                </td>
               {% endfor %}
             </tr>
-          </thead>
-          <tbody>
-            {% for row in evidence_table %}
-              <tr>
-                <td title="{{ row.description }}"><strong>{{ row.label }}</strong></td>
-                {% for cell in row.cells %}
-                  <td>
-                    {% if cell.best %}<span class="badge badge-success">{{ cell.text }}</span>{% else %}{{ cell.text }}{% endif %}
-                  </td>
-                {% endfor %}
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-  </div>
+  </section>
 
-  <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+  <div class="rec-list">
     {% for rec in recommendations %}
-      <div class="card" style="margin-bottom: 0; border-left: 5px solid {% if loop.index == 1 %}var(--success){% elif loop.index == 2 %}var(--primary){% else %}#475569{% endif %};">
+      <article class="card rec-card">
         <div class="card-header">
           <div>
-            <span class="badge {% if loop.index == 1 %}badge-success{% elif loop.index == 2 %}badge-primary{% else %}badge-secondary{% endif %}" style="font-size: 0.85rem; margin-bottom: 0.25rem;">
-              {{ rec.priority_focus }}
-            </span>
-            <h2 class="card-title" style="margin-top: 0.25rem;">
-              Recommended: Solution Alternative #{{ rec.recommended_alternative_number }}
-            </h2>
+            <p class="rec-focus">{{ rec.priority_focus }}</p>
+            <h2 class="card-title">Recommended: Alternative {{ rec.recommended_alternative_number }}</h2>
             {% if rec.tied_alternatives %}
-              <span class="badge badge-warning">Tied with #{{ rec.tied_alternatives|join(', #') }}</span>
+              {% set tied = rec.tied_alternatives %}
+              <span class="badge badge-warning rec-tie">Tied with {% if tied|length == 1 %}alternative {{ tied[0] }}{% else %}alternatives {{ tied[:-1]|join(', ') }} and {{ tied[-1] }}{% endif %}</span>
             {% endif %}
           </div>
           <a href="{{ url_for('visualization_web.view_solution', solution_id=rec.recommended_solution_id) }}" class="btn btn-sm btn-primary">
-            View Solution #{{ rec.recommended_alternative_number }} &rarr;
+            View Alternative {{ rec.recommended_alternative_number }} &rarr;
           </a>
         </div>
 
         <div class="card-body">
           <div class="grid-2">
-            <!-- Evidence Column -->
-            <div style="background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem;">
-              <h3 style="font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary); margin-bottom: 0.6rem;">
-                &#128202; Calculated Evidence (Objective Facts)
-              </h3>
-              <ul style="margin-left: 1.25rem; font-size: 0.92rem; color: #334155;">
+            <div class="panel">
+              <h3 class="panel-title">Calculated Evidence</h3>
+              <ul class="rec-evidence">
                 {% for ev in rec.evidence %}
-                  <li style="margin-bottom: 0.35rem;">{{ ev }}</li>
+                  <li>{{ ev }}</li>
                 {% endfor %}
               </ul>
-
-              <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-color);">
-                <strong style="font-size: 0.82rem; color: var(--text-muted);">Criteria Evaluated:</strong>
-                <ul style="margin-left: 1.25rem; font-size: 0.82rem; color: var(--text-muted); margin-top: 0.25rem;">
+              <div class="rec-criteria">
+                <p class="rec-criteria-title">Criteria evaluated, in order</p>
+                <ol>
                   {% for c in rec.criteria_used %}
                     <li>{{ c }}</li>
                   {% endfor %}
-                </ul>
+                </ol>
               </div>
             </div>
 
-            <!-- Advice Column -->
-            <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between;">
+            <div class="panel-outline rec-advice">
               <div>
-                <h3 style="font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--success); margin-bottom: 0.6rem;">
-                  &#128161; Policy Advice & Justification
-                </h3>
-                <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-main);">
-                  {{ rec.advice }}
-                </p>
+                <h3 class="panel-title">Policy Advice</h3>
+                <p>{{ rec.advice }}</p>
               </div>
-
-              <div style="margin-top: 1rem; background: var(--secondary-light); border-radius: var(--radius-sm); padding: 0.75rem; font-size: 0.82rem; color: var(--secondary);">
-                <strong>Governance Note:</strong> Final allocation decisions rest with the programme committee. If stakeholder priorities emphasize this focus, Solution {{ rec.recommended_alternative_number }} is the best of the generated alternatives on the criteria listed.
-              </div>
+              <p class="rec-governance">
+                Final allocation decisions rest with the programme committee. If this priority matters most, Alternative {{ rec.recommended_alternative_number }} is the best of the generated alternatives on the criteria listed.
+              </p>
             </div>
           </div>
         </div>
-      </div>
+      </article>
     {% endfor %}
   </div>
 {% else %}
   <div class="card">
-    <div class="card-body" style="text-align: center; padding: 3rem 0;">
-      <p style="color: var(--text-muted);">
-        No recommendations available because no feasible solutions were found for this run.
-      </p>
+    <div class="card-body empty-state">
+      <p>No recommendations are available because this run has no feasible solution.</p>
+      <a href="{{ url_for('visualization_web.view_run', run_id=run.id) }}" class="btn btn-sm btn-secondary">See the run diagnostics</a>
     </div>
   </div>
 {% endif %}
