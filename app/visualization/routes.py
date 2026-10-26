@@ -13,7 +13,7 @@ from typing import Any
 
 import flask
 
-from app.contract import contract, mocks
+from app.contract import contract
 from app.domain import models, validation
 from app.engine import recommendations, solvers
 from app.persistence import database, repositories
@@ -35,6 +35,59 @@ def inject_template_globals() -> dict[str, Any]:
         "can_edit": auth.can_edit_cohort_data(),
         "can_optimize": auth.can_trigger_optimization(),
     }
+
+
+@web_bp.app_template_filter("number")
+def format_number(value: Any, digits: int = 2) -> str:
+    """Formats an indicator value to a fixed number of decimal places.
+
+    Args:
+        value: Indicator value reported by the engine.
+        digits: Number of decimal places to show.
+
+    Returns:
+        The rounded value, or "N/A" if it is missing or not a number.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "N/A"
+    return f"{value:.{digits}f}"
+
+
+@web_bp.app_template_filter("signed_number")
+def format_signed_number(value: Any, digits: int = 2) -> str:
+    """Formats a difference between indicators with an explicit sign.
+
+    Args:
+        value: Difference reported by the engine.
+        digits: Number of decimal places to show.
+
+    Returns:
+        The rounded value with a leading "+" when positive, or "N/A" if it
+        is missing or not a number. A difference that rounds to zero is
+        shown without a sign.
+    """
+    text = format_number(value, digits)
+    if text == "N/A":
+        return text
+    if float(text) == 0:
+        return text.lstrip("-")
+    return text if text.startswith("-") else f"+{text}"
+
+
+@web_bp.app_template_filter("rank_bucket")
+def format_rank_bucket(key: str) -> str:
+    """Formats a rank_distribution key such as "rank_2" for display.
+
+    Args:
+        key: Key of the engine's rank distribution.
+
+    Returns:
+        "Choice #<rank>" for rank keys, otherwise the key unchanged.
+    """
+    prefix, _, rank = key.partition("_")
+    if prefix == "rank" and rank.isdigit():
+        return _rank_label(int(rank))
+    return key
 
 
 @web_bp.post("/set-role")
@@ -878,7 +931,7 @@ def clear_data() -> flask.Response:
 def _execute_validated_request(
     req: contract.RunRequest,
 ) -> models.AssignmentRun:
-    """Validate input before executing the engine or mock demo."""
+    """Validate input before executing the assignment engine."""
     engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
     val_outcome = engine.validate_inputs(req)
     for warning_msg in val_outcome.warnings:
@@ -908,25 +961,12 @@ def _execute_validated_request(
         )
         repositories.RunRepository().save_run(run)
         return run
-    try:
-        run = engine.execute_run(req)
-    except NotImplementedError:
-        flask.flash(
-            "Notice: AssignmentEngine.execute_run() is not yet implemented by "
-            "Team B. Running with MockAssignmentEngine for demonstration.",
-            "info",
-        )
-        with database.db_manager.transaction() as transaction_db:
-            mock_engine = mocks.MockAssignmentEngine(
-                repositories.RunRepository(transaction_db)
-            )
-            run = mock_engine.execute_run(req)
-    return run
+    return engine.execute_run(req)
 
 
 @web_bp.post("/runs/trigger")
 def trigger_run() -> flask.Response:
-    """Validate saved input before starting an engine or mock run."""
+    """Validate saved input before starting an engine run."""
     if not auth.can_trigger_optimization():
         flask.flash("Permission denied for current role.", "danger")
         return flask.redirect(flask.url_for("visualization_web.dashboard"))
@@ -1282,25 +1322,20 @@ def _enrich_changed_assignments(
 def _compare_via_contract(
     solution_a_id: str, solution_b_id: str
 ) -> models.RunComparison:
-    """Compares two solutions via the engine, falling back to the mock.
+    """Compares two solutions via the engine.
 
     Args:
         solution_a_id: Identifier of the baseline solution.
         solution_b_id: Identifier of the comparison solution.
 
     Returns:
-        The RunComparison produced by the engine or the mock engine.
+        The RunComparison produced by the engine.
 
     Raises:
         KeyError: If either solution cannot be found.
     """
     engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
-    try:
-        return engine.compare_solutions(solution_a_id, solution_b_id)
-    except NotImplementedError:
-        return mocks.MockAssignmentEngine().compare_solutions(
-            solution_a_id, solution_b_id
-        )
+    return engine.compare_solutions(solution_a_id, solution_b_id)
 
 
 @web_bp.get("/compare")

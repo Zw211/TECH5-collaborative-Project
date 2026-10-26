@@ -81,7 +81,7 @@
         <div class="kpi-card">
           <span class="kpi-label">&Delta; Average Preference Rank</span>
           <span class="kpi-value {% if comparison.delta_mean_rank < 0 %}text-success{% elif comparison.delta_mean_rank > 0 %}text-danger{% endif %}">
-            {% if comparison.delta_mean_rank > 0 %}+{% endif %}{{ comparison.delta_mean_rank }}
+            {{ comparison.delta_mean_rank|signed_number(2) }}
           </span>
           <span class="kpi-sub">Lower rank number is better</span>
         </div>
@@ -104,7 +104,7 @@
             <span class="kpi-sub">Not reported by the engine</span>
           {% else %}
             <span class="kpi-value {% if gini < 0 %}text-success{% elif gini > 0 %}text-danger{% endif %}">
-              {% if gini > 0 %}+{% endif %}{{ gini }}
+              {{ gini|signed_number(3) }}
             </span>
             <span class="kpi-sub">Lower is fairer</span>
           {% endif %}

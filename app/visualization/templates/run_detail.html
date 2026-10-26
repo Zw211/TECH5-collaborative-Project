@@ -123,21 +123,21 @@
                 <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">AVG PREF RANK</div>
                   <div style="font-size: 1.3rem; font-weight: 700; color: var(--success);">
-                    #{{ fair.get('mean_rank', 'N/A') }}
+                    #{{ fair.get('mean_rank')|number(2) }}
                   </div>
                 </div>
 
                 <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">WORST RANK</div>
                   <div style="font-size: 1.2rem; font-weight: 700; color: var(--warning);">
-                    #{{ fair.get('worst_rank', 'N/A') }}
+                    #{{ fair.get('worst_rank')|number(0) }}
                   </div>
                 </div>
 
                 <div style="background: #ffffff; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.6rem;">
                   <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">RANK GINI</div>
                   <div style="font-size: 1.2rem; font-weight: 700; color: #475569;">
-                    {{ fair.get('rank_gini', 'N/A') }}
+                    {{ fair.get('rank_gini')|number(3) }}
                   </div>
                 </div>
               </div>
@@ -145,7 +145,7 @@
               <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
                 <strong>Preference Distribution:</strong>
                 {% for r_key, count in fair.get('rank_distribution', {}).items() %}
-                  <span class="badge badge-secondary">{{ r_key }}: {{ count }}</span>
+                  <span class="badge badge-secondary">{{ r_key|rank_bucket }}: {{ count }}</span>
                 {% endfor %}
               </div>
 
