@@ -1387,4 +1387,5 @@ def view_recommendations(run_id: str) -> Any:
         "recommendations.html",
         run=run,
         recommendations=recs,
+        evidence_table=recommendations.evidence_table(run.solutions),
     )
