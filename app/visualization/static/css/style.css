@@ -520,22 +520,6 @@ code {
   }
 }
 
-/* Footer */
-.footer {
-  background: var(--canvas);
-  color: var(--muted);
-  padding: 1.5rem;
-  text-align: center;
-  font-size: 0.85rem;
-  border-top: 1px solid var(--line-soft);
-  margin-top: auto;
-}
-
-.footer a {
-  color: var(--link);
-  text-decoration: none;
-}
-
 /* Page heading */
 .page-head {
   display: flex;
