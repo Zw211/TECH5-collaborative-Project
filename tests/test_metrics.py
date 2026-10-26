@@ -1,15 +1,9 @@
 """Unit tests for analytical indicators, fairness, and comparison."""
 
-import pytest
-
 from app.domain import models
 from app.engine import metrics
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team B): Implement calculate_gini",
-)
 def test_gini_calculation() -> None:
     """Verifies that Gini coefficient calculation matches expectations."""
     # Complete equality
@@ -19,10 +13,6 @@ def test_gini_calculation() -> None:
     assert 0.0 < gini < 1.0
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team B): Implement calculate_assignment_skill_fit",
-)
 def test_skill_fit_calculation() -> None:
     """Verifies skill fit score computation for student and project."""
     student = models.Student(
@@ -47,10 +37,6 @@ def test_skill_fit_calculation() -> None:
     assert unmet == ["sql"]
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team B): Implement compute_solution_indicators",
-)
 def test_solution_indicators_calculation() -> None:
     """Verifies full indicator computation for a solution."""
     students = [
@@ -97,10 +83,6 @@ def test_solution_indicators_calculation() -> None:
     assert indicators["capacity"]["overall_utilization_pct"] == 100.0
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team B): Implement compare_two_solutions",
-)
 def test_solution_comparison() -> None:
     """Verifies comparative trade-off calculation between two solutions."""
     sol_a = models.Solution(

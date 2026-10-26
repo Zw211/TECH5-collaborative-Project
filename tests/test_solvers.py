@@ -8,6 +8,7 @@ from app import create_app
 from app.contract import contract
 from app.domain import models
 from app.engine import solvers
+from app.persistence import database, repositories
 from app.samples import demo_data
 
 
@@ -85,35 +86,19 @@ def test_assignment_strategy_abc() -> None:
 
 
 def test_assignment_engine_initialization() -> None:
-    """Initialize an engine without registered solver strategies."""
+    """Initialize an engine with all supported solver strategies."""
     engine = solvers.AssignmentEngine()
     assert isinstance(engine, contract.AssignmentEngineContract)
     assert isinstance(engine.strategies, dict)
-    assert len(engine.strategies) == 0
+    assert set(engine.strategies) == {"PREFERENCE", "SKILL_FIT", "BALANCED"}
 
 
-def test_assignment_engine_raises_not_implemented() -> None:
-    """Verifies that execute_run raises NotImplementedError for Team B."""
-    engine = solvers.AssignmentEngine()
-    benchmark = demo_data.get_standard_scenario()
-    request = contract.RunRequest(
-        students=benchmark["students"],
-        projects=benchmark["projects"],
-    )
-    with pytest.raises(NotImplementedError) as exc_info:
-        engine.execute_run(request)
-    assert "TODO (Team B)" in str(exc_info.value)
-
-
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    reason="TODO (Team B): Implement optimization solver and alternative "
-    "generation",
-)
-def test_distinct_alternatives_generation() -> None:
+def test_distinct_alternatives_generation(tmp_path: pathlib.Path) -> None:
     """Verifies AssignmentEngine produces distinct alternatives."""
     benchmark = demo_data.get_standard_scenario()
-    engine = solvers.AssignmentEngine()
+    db = database.DatabaseManager(tmp_path / "alternatives.db")
+    db.initialize_schema()
+    engine = solvers.AssignmentEngine(repositories.RunRepository(db))
 
     run = engine.run_assignment(
         students=benchmark["students"],

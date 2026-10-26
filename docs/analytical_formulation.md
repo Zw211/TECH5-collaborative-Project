@@ -71,3 +71,20 @@ The report will be assessed on:
 - Mathematical definition of all indicators (feasibility, efficiency, fairness, capacity).
 - Inspectable recommendation rules that clearly distinguish calculated evidence from advice.
 - Documented assumptions, boundary conditions, and critical discussion of analytical limitations.
+
+
+## Team B implementation baseline — Milestone 2 (2026-10-22)
+
+The feature-branch solver now maximizes total assignment utility under the
+confirmed exact-allocation, capacity, team-skill, and lock constraints.
+Preference utility is `(M-r+1)/M` for ranked projects, with the same longest-list
+length M across the cohort; unranked choices (and M=0) score zero. Skill utility
+is the mean capped proficiency ratio over equally weighted requirements, or 1
+when the project has no requirements. PREFERENCE uses weights (1,0), SKILL_FIT
+uses (0,1), and BALANCED uses (0.5,0.5).
+
+See [solver_spec.md](solver_spec.md) for complete definitions, interpretation,
+and limitations, and [the living plan](solver_implementation_plan.md) for test
+evidence. This implements individual fit, not fairness optimization or Pareto
+search. Hard mandatory coverage is verified at team level independently of scores.
+Instructor approval is still pending; application integration is not complete.
