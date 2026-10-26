@@ -29,17 +29,17 @@
   <div class="kpi-card">
     <span class="kpi-label">Average Preference Rank</span>
     <span class="kpi-value" style="color: var(--success);">
-      #{{ fair.get('mean_rank', 'N/A') }}
+      #{{ fair.get('mean_rank')|number(2) }}
     </span>
-    <span class="kpi-sub">Worst individual rank: #{{ fair.get('worst_rank', 'N/A') }}</span>
+    <span class="kpi-sub">Worst individual rank: #{{ fair.get('worst_rank')|number(0) }}</span>
   </div>
 
   <div class="kpi-card">
     <span class="kpi-label">Rank Disparity (Gini)</span>
     <span class="kpi-value" style="color: #475569;">
-      {{ fair.get('rank_gini', 'N/A') }}
+      {{ fair.get('rank_gini')|number(3) }}
     </span>
-    <span class="kpi-sub">Variance: {{ fair.get('rank_variance', 'N/A') }}</span>
+    <span class="kpi-sub">Variance: {{ fair.get('rank_variance')|number(2) }}</span>
   </div>
 
   <div class="kpi-card">
@@ -47,7 +47,7 @@
     <span class="kpi-value {% if fair.get('unranked_count', 0) > 0 %}text-danger{% else %}text-success{% endif %}">
       {{ fair.get('unranked_count', 0) }}
     </span>
-    <span class="kpi-sub">{{ fair.get('unranked_pct', 0.0) }}% of cohort unranked</span>
+    <span class="kpi-sub">{{ fair.get('unranked_pct', 0.0)|number(1) }}% of cohort unranked</span>
   </div>
 </div>
 

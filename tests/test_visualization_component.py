@@ -1,14 +1,15 @@
 """Tests for Component A (Visualization & Recommendation) web workflows."""
 
 import copy
+import html
 import pathlib
 from typing import Any
 
 import pytest
 
 from app import create_app
-from app.contract import mocks
 from app.domain import models
+from app.engine import solvers
 from app.persistence import repositories
 from app.visualization import routes
 
@@ -96,7 +97,7 @@ def test_scenario_loading_and_optimization_trigger(
     assert load_res.status_code == 200
     assert b"Standard Cohort" in load_res.data
 
-    # Trigger a run, falling back to the mock if the solver is unfinished.
+    # Trigger a run with the real engine.
     run_res = client.post(
         "/runs/trigger",
         data={
@@ -829,8 +830,8 @@ def test_projects_crud_workflow(tmp_path: pathlib.Path) -> None:
     assert b"not found" in res_missing.data
 
 
-def _create_mock_run(client: Any) -> models.AssignmentRun:
-    """Loads the standard scenario and triggers one run; returns that run."""
+def _create_run(client: Any) -> models.AssignmentRun:
+    """Loads the standard scenario and triggers one real run; returns it."""
     client.post("/load-scenario/standard")
     client.post("/runs/trigger", data={"max_alternatives": 3})
     return repositories.RunRepository().list_runs()[0]
@@ -858,9 +859,9 @@ def test_compare_empty_database_shows_guidance(
 
 
 def test_compare_two_alternatives_of_a_run(tmp_path: pathlib.Path) -> None:
-    """Verifies a mock run's alternatives can be compared side by side."""
+    """Verifies a run's alternatives can be compared side by side."""
     client = _make_client(tmp_path, "test_comp_run")
-    run = _create_mock_run(client)
+    run = _create_run(client)
     alt1, alt2 = run.solutions[0], run.solutions[1]
 
     res = client.get(f"/compare?sol1={alt1.id}&sol2={alt2.id}")
@@ -870,15 +871,13 @@ def test_compare_two_alternatives_of_a_run(tmp_path: pathlib.Path) -> None:
     assert b"Choice #None" not in res.data
 
     # Names and titles come from the repositories, not the raw IDs.
-    comparison = mocks.MockAssignmentEngine().compare_solutions(
-        alt1.id, alt2.id
-    )
+    comparison = solvers.AssignmentEngine().compare_solutions(alt1.id, alt2.id)
     first = comparison.changed_assignments[0]
     student = repositories.StudentRepository().get_by_id(first["student_id"])
     project = repositories.ProjectRepository().get_by_id(first["project_b_id"])
     assert student is not None and project is not None
-    assert student.display_name.encode() in res.data
-    assert project.title.encode() in res.data
+    assert html.escape(student.display_name).encode() in res.data
+    assert html.escape(project.title).encode() in res.data
 
 
 def test_compare_same_solution_twice_is_identical(
@@ -886,7 +885,7 @@ def test_compare_same_solution_twice_is_identical(
 ) -> None:
     """Verifies comparing a solution with itself is flagged as identical."""
     client = _make_client(tmp_path, "test_comp_same")
-    alt1 = _create_mock_run(client).solutions[0]
+    alt1 = _create_run(client).solutions[0]
 
     res = client.get(f"/compare?sol1={alt1.id}&sol2={alt1.id}")
     assert res.status_code == 200
@@ -899,7 +898,7 @@ def test_compare_only_sol1_preselects_second_alternative(
 ) -> None:
     """Verifies sol2 defaults to another alternative of the same run."""
     client = _make_client(tmp_path, "test_comp_preselect")
-    run = _create_mock_run(client)
+    run = _create_run(client)
     alt1, alt2 = run.solutions[0], run.solutions[1]
 
     res = client.get(f"/compare?sol1={alt1.id}")
@@ -911,7 +910,7 @@ def test_compare_only_sol1_preselects_second_alternative(
 def test_compare_unknown_second_id(tmp_path: pathlib.Path) -> None:
     """Verifies one unknown ID gives an error flash and no crash."""
     client = _make_client(tmp_path, "test_comp_unknown")
-    alt1 = _create_mock_run(client).solutions[0]
+    alt1 = _create_run(client).solutions[0]
 
     res = client.get(f"/compare?sol1={alt1.id}&sol2=nope")
     assert res.status_code == 200
@@ -940,7 +939,7 @@ def test_compare_solutions_from_different_runs_warns(
 def test_run_detail_links_to_comparisons(tmp_path: pathlib.Path) -> None:
     """Verifies the run page links the first alternative to the others."""
     client = _make_client(tmp_path, "test_comp_links")
-    run = _create_mock_run(client)
+    run = _create_run(client)
 
     res = client.get(f"/runs/{run.id}")
     assert b"Compare Alt 1 vs Alt 2" in res.data
@@ -1008,3 +1007,54 @@ def test_pick_default_partner() -> None:
     assert routes._pick_default_partner("a3", options) == "a1"
     assert routes._pick_default_partner("b1", options) is None
     assert routes._pick_default_partner("zzz", options) is None
+
+
+def test_real_indicators_are_rounded_on_run_and_solution_pages(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies real engine values are not shown with raw float digits."""
+    client = _make_client(tmp_path, "test_round_pages")
+    run = _create_run(client)
+    for solution in run.solutions:
+        gini = solution.indicators["fairness"]["rank_gini"]
+        raw = repr(gini).encode()
+        run_page = client.get(f"/runs/{run.id}").data
+        solution_page = client.get(f"/solutions/{solution.id}").data
+        assert f"{gini:.3f}".encode() in run_page
+        assert f"{gini:.3f}".encode() in solution_page
+        if len(repr(gini)) > 5:
+            assert raw not in run_page
+            assert raw not in solution_page
+    run_page = client.get(f"/runs/{run.id}").data
+    assert b"rank_1:" not in run_page
+    assert b"Choice #1:" in run_page
+
+
+def test_compare_shows_rounded_deltas_for_real_alternatives(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies compare deltas use fixed decimals and an explicit sign."""
+    client = _make_client(tmp_path, "test_round_compare")
+    run = _create_run(client)
+    pairs = [
+        (a, b) for a in run.solutions for b in run.solutions if a.id != b.id
+    ]
+    for a, b in pairs:
+        comparison = solvers.AssignmentEngine().compare_solutions(a.id, b.id)
+        gini = comparison.delta_metrics["gini_delta"]
+        page = client.get(f"/compare?sol1={a.id}&sol2={b.id}").data
+        assert routes.format_signed_number(gini, 3).encode() in page
+        assert repr(gini).encode() not in page or len(repr(gini)) <= 6
+
+
+def test_number_filters_handle_missing_and_zero() -> None:
+    """Verifies the display filters never print raw or misleading values."""
+    assert routes.format_number(None) == "N/A"
+    assert routes.format_number(True) == "N/A"
+    assert routes.format_number(0.08181818181818182, 3) == "0.082"
+    assert routes.format_signed_number(0.0818, 3) == "+0.082"
+    assert routes.format_signed_number(-0.1, 2) == "-0.10"
+    assert routes.format_signed_number(-0.0001, 2) == "0.00"
+    assert routes.format_signed_number(None) == "N/A"
+    assert routes.format_rank_bucket("rank_2") == "Choice #2"
+    assert routes.format_rank_bucket("other") == "other"
