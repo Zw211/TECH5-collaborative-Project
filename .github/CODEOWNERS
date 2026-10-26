@@ -14,6 +14,7 @@
 
 # Team B
 /app/engine/                            @TEAM_B_1 @TEAM_B_2
+/app/engine/recommendations.py          @rymdd @Zw211
 /tests/test_solvers.py                  @TEAM_B_1 @TEAM_B_2
 /tests/test_metrics.py                  @TEAM_B_1 @TEAM_B_2
 /tests/test_edge_cases.py               @TEAM_B_1 @TEAM_B_2

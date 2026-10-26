@@ -16,6 +16,47 @@
 </div>
 
 {% if recommendations %}
+  {% for note in recommendations[0].notes %}
+    <div class="alert alert-info" style="margin-bottom: 1rem;">{{ note }}</div>
+  {% endfor %}
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">Evidence Across All Alternatives</h2>
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin-top: 0.25rem;">
+          Every indicator used below, for every alternative. The preferred feasible value in each row is highlighted.
+        </p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Indicator</th>
+              {% for cell in evidence_table[0].cells %}
+                <th>Alternative #{{ cell.alternative }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in evidence_table %}
+              <tr>
+                <td title="{{ row.description }}"><strong>{{ row.label }}</strong></td>
+                {% for cell in row.cells %}
+                  <td>
+                    {% if cell.best %}<span class="badge badge-success">{{ cell.text }}</span>{% else %}{{ cell.text }}{% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div style="display: flex; flex-direction: column; gap: 1.5rem;">
     {% for rec in recommendations %}
       <div class="card" style="margin-bottom: 0; border-left: 5px solid {% if loop.index == 1 %}var(--success){% elif loop.index == 2 %}var(--primary){% else %}#475569{% endif %};">
@@ -27,6 +68,9 @@
             <h2 class="card-title" style="margin-top: 0.25rem;">
               Recommended: Solution Alternative #{{ rec.recommended_alternative_number }}
             </h2>
+            {% if rec.tied_alternatives %}
+              <span class="badge badge-warning">Tied with #{{ rec.tied_alternatives|join(', #') }}</span>
+            {% endif %}
           </div>
           <a href="{{ url_for('visualization_web.view_solution', solution_id=rec.recommended_solution_id) }}" class="btn btn-sm btn-primary">
             View Solution #{{ rec.recommended_alternative_number }} &rarr;
@@ -68,7 +112,7 @@
               </div>
 
               <div style="margin-top: 1rem; background: var(--secondary-light); border-radius: var(--radius-sm); padding: 0.75rem; font-size: 0.82rem; color: var(--secondary);">
-                <strong>Governance Note:</strong> Final allocation decisions rest with the programme committee. If stakeholder priorities emphasize this focus, Solution {{ rec.recommended_alternative_number }} represents the mathematically optimal selection.
+                <strong>Governance Note:</strong> Final allocation decisions rest with the programme committee. If stakeholder priorities emphasize this focus, Solution {{ rec.recommended_alternative_number }} is the best of the generated alternatives on the criteria listed.
               </div>
             </div>
           </div>
