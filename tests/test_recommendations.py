@@ -117,9 +117,10 @@ def test_infeasible_solutions_are_excluded() -> None:
 
 def test_all_infeasible_gives_no_recommendations() -> None:
     """Verifies no recommendation is made without a feasible solution."""
-    assert recommendations.generate_recommendations(
-        [_sol(1, feasible=False)]
-    ) == []
+    assert (
+        recommendations.generate_recommendations([_sol(1, feasible=False)])
+        == []
+    )
     assert recommendations.generate_recommendations([]) == []
 
 
@@ -195,9 +196,7 @@ def test_recommendations_page_shows_evidence_table(
     tmp_path: pathlib.Path,
 ) -> None:
     """Verifies the page renders the evidence table for a real run."""
-    app = create_app(
-        {"TESTING": True, "DATABASE_PATH": tmp_path / "recs.db"}
-    )
+    app = create_app({"TESTING": True, "DATABASE_PATH": tmp_path / "recs.db"})
     client = app.test_client()
     client.post("/load-scenario/standard")
     client.post(

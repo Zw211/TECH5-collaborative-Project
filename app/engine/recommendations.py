@@ -251,9 +251,7 @@ def evidence_table(
     ordered = sorted(solutions, key=lambda s: s.alternative_number)
     rows = []
     for criterion in TABLE_CRITERIA:
-        best = _best_value(
-            criterion, [s for s in ordered if _is_feasible(s)]
-        )
+        best = _best_value(criterion, [s for s in ordered if _is_feasible(s)])
         cells = []
         for solution in ordered:
             value = _metric(solution, criterion)
@@ -366,9 +364,10 @@ def _run_notes(
             "Only one feasible alternative was generated, so the "
             "recommendations cannot compare alternatives."
         )
-    elif len(items) > 1 and len(
-        {item.recommended_solution_id for item in items}
-    ) == 1:
+    elif (
+        len(items) > 1
+        and len({item.recommended_solution_id for item in items}) == 1
+    ):
         notes.append(
             f"Alternative {items[0].recommended_alternative_number} is "
             "recommended for every priority, so this run shows no "
@@ -388,9 +387,7 @@ def _is_feasible(solution: models.Solution) -> bool:
     return feasibility.get("is_feasible", True) is not False
 
 
-def _metric(
-    solution: models.Solution, criterion: Criterion
-) -> float | None:
+def _metric(solution: models.Solution, criterion: Criterion) -> float | None:
     """Returns a numeric indicator value, or None if it is missing."""
     value = solution.indicators.get(criterion.group, {}).get(criterion.key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -456,11 +453,7 @@ def _evidence_line(
         f"{_format(solution, criterion, _metric(solution, criterion))}"
     )
     measured = sorted(
-        (
-            (v, s)
-            for s in others
-            if (v := _metric(s, criterion)) is not None
-        ),
+        ((v, s) for s in others if (v := _metric(s, criterion)) is not None),
         key=lambda pair: pair[0],
     )
     if not measured:
