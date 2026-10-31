@@ -1,4 +1,4 @@
-﻿# Deliverable 3: System Architecture Specification & Design Rationale
+# Deliverable 4: System Architecture Specification & Design Rationale
 
 ## 1. Executive Architectural Overview
 
@@ -9,9 +9,9 @@ In accordance with the updated project specification (Sections 5, 7, 8, and 15),
 1. **Component A (Visualization & Recommendation Component)**:
    - Manages user workflow, cohort data inspection, CRUD interfaces, benchmark scenario seeding, role switching (Admin, Coordinator, Student Viewer), multi-solution visual side-by-side trade-off comparisons, and evidence-backed recommendations.
 2. **Component B (Assignment Engine)**:
-   - Validates input feasibility, executes mathematical Integer Linear Programming (PuLP) using the **Strategy Pattern** (`PreferenceOrientedSolver`, `SkillFitOrientedSolver`, `BalancedTradeoffSolver`), generates distinct Pareto alternatives via integer no-good cuts, evaluates multidimensional quality/fairness metrics, and captures diagnostics.
+   - Validates input feasibility, executes mathematical Integer Linear Programming (PuLP) using the **Strategy Pattern** (`PreferenceOrientedSolver`, `SkillFitOrientedSolver`, `BalancedTradeoffSolver`), generates distinct feasible alternatives by repeatedly solving the selected objective with integer no-good cuts, evaluates multidimensional quality/fairness metrics, and captures diagnostics.
 
-The two components are mediated strictly by an **internal Python component contract** (`app/contract/contract.py`), backed by a shared relational SQLite 3NF persistence layer (`app/persistence`).
+Assignment execution and comparison use an **internal Python component contract** (`app/contract/contract.py`), backed by a shared relational SQLite 3NF persistence layer (`app/persistence`). Routes also call the recommendation functions directly and use repositories to retrieve saved data.
 
 ---
 
@@ -34,26 +34,34 @@ flowchart TD
     subgraph Component_B["Component B: Assignment Engine (app/engine)"]
         SolverEngine["AssignmentEngine (implements Contract)"]
         StrategyPattern["Strategy Pattern: Preference, Skill-Fit, Balanced"]
-        PuLPSolver["PuLP ILP Solver & Pareto No-Good Cuts"]
+        PuLPSolver["PuLP ILP Solver & No-Good Cuts"]
         MetricsEngine["Analytical Indicators & Gini Fairness Engine"]
-        ValidationEngine["Domain Feasibility Validator"]
+        Recommendations["Recommendation Functions (app/engine/recommendations.py)"]
     end
+
+    DomainModels["Domain Dataclasses (app/domain/models.py)"]
+    ValidationEngine["Domain Feasibility Validator (app/domain/validation.py)"]
 
     subgraph Persistence["Shared Relational Persistence (app/persistence)"]
         DBMgr["DatabaseManager (SQLite WAL Mode, Foreign Keys)"]
-        Repos["Repository Pattern: Students, Projects, Skills, Runs"]
+        Repos["Repositories: Cohort, Students, Projects, Skills, Locks, Runs"]
         Schema["3NF Relational Schema & Performance Indexes"]
     end
 
     UI --> WebRoutes
     WebRoutes --> RoleAuth
     WebRoutes --> RecPresenter
+    WebRoutes --> Recommendations
+    Recommendations -->|Reads stored solution indicators| DomainModels
+    WebRoutes --> ValidationEngine
+    SolverEngine --> DomainModels
     WebRoutes -->|Invokes Python Methods| ContractABC
     ContractABC -.->|Implemented By| SolverEngine
 
     SolverEngine --> StrategyPattern
     StrategyPattern --> PuLPSolver
     SolverEngine --> MetricsEngine
+    MetricsEngine --> DomainModels
     SolverEngine --> ValidationEngine
 
     WebRoutes --> Repos
@@ -84,37 +92,155 @@ flowchart TD
 The Assignment Engine defines an abstract base strategy `AssignmentStrategy(abc.ABC)` with concrete subclasses:
 - `PreferenceOrientedSolver`: Maximizes student ranked preferences (assigning rank 1 awards highest utility, penalizing unranked assignments).
 - `SkillFitOrientedSolver`: Maximizes qualification fit across all required project skills.
-- `BalancedTradeoffSolver`: Combines normalized preference satisfaction and skill coverage using Pareto scalarization.
+- `BalancedTradeoffSolver`: Combines normalized preference utility and individual skill fit with equal weights.
 
+```mermaid
+classDiagram
+    AssignmentStrategy <|-- PreferenceOrientedSolver
+    AssignmentStrategy <|-- SkillFitOrientedSolver
+    AssignmentStrategy <|-- BalancedTradeoffSolver
+    class AssignmentStrategy {
+        <<abstract>>
+        +calculate_cost_or_utility()
+        +solve()
+    }
 ```
-       +-----------------------------------+
-       |     AssignmentStrategy (ABC)      |
-       +-----------------------------------+
-       | + calculate_cost_or_utility(...)  |
-       | + solve(...)                      |
-       +-----------------------------------+
-             ^               ^          ^
-             |               |          |
-  +----------+----+   +------+----+   +-+----------------+
-  | Preference    |   | SkillFit  |   | BalancedTradeoff |
-  | OrientedSolver|   | Solver    |   | Solver           |
-  +---------------+   +-----------+   +------------------+
-```
+
+Each no-good cut excludes one complete prior student-to-project allocation.
+The engine repeats the selected strategy until the requested limit, exhaustion,
+or an unsuccessful solve; returned alternatives are distinct, without a
+Pareto-optimality guarantee.
 
 ### 4.2 Abstract Contract Pattern (Component Boundary)
 `AssignmentEngineContract` defines the public interface required by Component A. Concrete `AssignmentEngine` implements all contract methods, ensuring that any mock or alternative solver can be substituted without touching Component A.
 
 ### 4.3 Repository Pattern (Data Access Layer)
 Persistence operations are encapsulated into domain repositories:
+- `CohortRepository`: Replaces students, projects, skills, and locks atomically.
 - `StudentRepository`: Manages `students`, `student_skills`, and `preferences`.
 - `ProjectRepository`: Manages `projects` and `project_requirements`.
 - `SkillRepository`: Manages defined competencies.
 - `FixedAssignmentRepository`: Manages administrative pre-allocation locks.
 - `RunRepository`: Manages `assignment_runs`, `solutions`, and `assignments`.
 
+### 4.4 Main Class Relationships
+
+These four class views follow `app/domain/models.py`, `app/contract/contract.py`,
+`app/engine/solvers.py`, and `app/persistence/`. Solid associations show retained
+objects; dashed arrows show calls or types used in inputs/outputs. Associations
+labelled with IDs are logical references, not Python object fields.
+`Student.skills` stores skill IDs mapped to levels; `StudentSkill` is the
+corresponding value-object type, not a list held by `Student`. Collection
+multiplicities allow empty inputs and unsuccessful runs; a feasible solution
+assigns every student exactly once.
+
+```mermaid
+classDiagram
+    AssignmentEngineContract <|-- AssignmentEngine
+    AssignmentEngineContract <|-- MockAssignmentEngine
+    class AssignmentEngineContract {
+        <<abstract>>
+        +validate_inputs()
+        +execute_run()
+        +list_runs()
+        +get_run()
+        +get_solution()
+        +compare_solutions()
+    }
+    AssignmentEngineContract ..> RunRequest : accepts
+    AssignmentEngineContract ..> ValidationOutcome : returns
+    AssignmentEngineContract ..> AssignmentRun : returns
+    AssignmentEngineContract ..> Solution : returns
+    AssignmentEngineContract ..> RunComparison : returns
+    AssignmentEngine "1" --> "3" AssignmentStrategy : strategies
+    AssignmentStrategy <|-- PreferenceOrientedSolver
+    AssignmentStrategy <|-- SkillFitOrientedSolver
+    AssignmentStrategy <|-- BalancedTradeoffSolver
+    AssignmentStrategy ..> DiagnosticInfo : serializes diagnostics
+    AssignmentEngine "0..*" --> "1" RunRepository : run_repo
+    AssignmentEngine ..> SkillRepository : saves cohort
+    AssignmentEngine ..> ProjectRepository : saves cohort
+    AssignmentEngine ..> StudentRepository : saves cohort
+    AssignmentEngine ..> FixedAssignmentRepository : saves locks
+```
+
+Domain collections and ID references:
+
+```mermaid
+---
+config:
+  nodeSpacing: 90
+  rankSpacing: 180
+---
+classDiagram
+    direction LR
+    RunRequest "1" --> "0..*" Student : students
+    RunRequest "1" --> "0..*" Project : projects
+    RunRequest "1" --> "0..*" Skill : optional skills
+    RunRequest "1" --> "0..*" FixedAssignment : optional locks
+    Student "1" --> "0..*" Preference : preferences
+    Project "1" --> "0..*" ProjectRequirement : requirements
+    Student "1" -- "0..*" StudentSkill
+    Skill "1" -- "0..*" StudentSkill : skill_id
+    Project "1" -- "0..*" Preference : project_id
+    Skill "1" -- "0..*" ProjectRequirement : skill_id
+    Student "1" -- "0..1" FixedAssignment : student_id
+    Project "1" -- "0..*" FixedAssignment : project_id
+```
+
+Run results and allocation references:
+
+```mermaid
+classDiagram
+    direction LR
+    AssignmentRun "1" --> "0..*" Solution : solutions
+    Solution "1" --> "0..*" Assignment : assignments
+    Student "1" -- "0..*" Assignment : student_id
+    Project "1" -- "0..*" Assignment : project_id
+    RunComparison ..> Solution : solution_a_id and solution_b_id
+```
+
+Persistence collaborators and mapped domain types:
+
+```mermaid
+---
+config:
+  nodeSpacing: 90
+  rankSpacing: 180
+---
+classDiagram
+    direction LR
+    CohortRepository "0..*" --> "1" DatabaseManager : db
+    SkillRepository "0..*" --> "1" DatabaseManager : db
+    StudentRepository "0..*" --> "1" DatabaseManager : db
+    ProjectRepository "0..*" --> "1" DatabaseManager : db
+    FixedAssignmentRepository "0..*" --> "1" DatabaseManager : db
+    RunRepository "0..*" --> "1" DatabaseManager : db
+    CohortRepository ..> Student : replaces cohort
+    CohortRepository ..> Project : replaces cohort
+    CohortRepository ..> Skill : replaces cohort
+    CohortRepository ..> FixedAssignment : replaces locks
+    SkillRepository ..> Skill : maps
+    StudentRepository ..> Student : maps
+    ProjectRepository ..> Project : maps
+    FixedAssignmentRepository ..> FixedAssignment : maps
+    RunRepository ..> AssignmentRun : saves and loads
+    RunRepository ..> Solution : loads
+    DatabaseManager ..> InvalidDatabaseRecords : raises
+```
+
+The repositories share a `DatabaseManager`; its `transaction()` context can
+supply a transaction-bound manager so cohort and run writes commit together.
+Domain IDs and the database constraints below define saved-record references.
+
 ---
 
 ## 5. Relational Database Architecture
+
+This diagram follows `app/persistence/schema.sql`. Every foreign key uses
+`ON DELETE CASCADE`. Composite unique constraints also prevent duplicate
+preference ranks within a student, duplicate alternative numbers within a run, and duplicate students
+within a solution.
 
 ```mermaid
 erDiagram
@@ -124,7 +250,7 @@ erDiagram
     projects ||--o{ preferences : "ranked in"
     projects ||--o{ project_requirements : "demands"
     skills ||--o{ project_requirements : "specified by"
-    students ||--o{ fixed_assignments : "locked to"
+    students ||--o| fixed_assignments : "locked to"
     projects ||--o{ fixed_assignments : "hosts"
     assignment_runs ||--o{ solutions : "produces"
     solutions ||--o{ assignments : "allocates"
@@ -144,7 +270,7 @@ erDiagram
     }
     skills {
         TEXT id PK
-        TEXT name
+        TEXT name UK
         TEXT description
     }
     student_skills {
@@ -164,7 +290,8 @@ erDiagram
         INTEGER rank
     }
     fixed_assignments {
-        TEXT student_id PK,FK
+        INTEGER id PK
+        TEXT student_id FK,UK
         TEXT project_id FK
         TEXT status
         TEXT reason
