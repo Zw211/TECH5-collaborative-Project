@@ -64,7 +64,7 @@ erDiagram
     PREFERENCES {
         text student_id PK, FK
         text project_id PK, FK
-        integer rank UK
+        integer rank
     }
 
     FIXED_ASSIGNMENTS {
@@ -86,7 +86,7 @@ erDiagram
     SOLUTIONS {
         text id PK
         text run_id FK
-        integer alternative_number UK
+        integer alternative_number
         text strategy_name
         real objective_value
         text indicators
@@ -107,6 +107,11 @@ erDiagram
 ```
 
 ---
+
+Composite uniqueness is scoped to `preferences(student_id, rank)`,
+`solutions(run_id, alternative_number)`, and
+`assignments(solution_id, student_id)`. Neither `rank` nor `alternative_number`
+is individually unique. The DDL below gives the complete constraints.
 
 ## 3. Relational Table Definitions & Constraints
 
@@ -227,7 +232,9 @@ CREATE TABLE IF NOT EXISTS solutions (
 ```
 
 ### 3.10 `assignments` (Detailed Student Allocations)
-Stores the individual match tuples. Guarantees that within a solution, a student is assigned to exactly one project (`uq_solution_student`):
+Stores the individual match tuples. Guarantees that within a solution, a student is assigned to at most one project (`uq_solution_student`).
+This constraint does not require an assignment row for every student; complete
+allocation is enforced by the assignment engine:
 ```sql
 CREATE TABLE IF NOT EXISTS assignments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,10 +276,29 @@ The relational design satisfies all conditions of 3NF:
 
 ## 5. Non-Trivial Analytical SQL Queries
 
-Below are four representative analytical queries included in `app/persistence/queries.sql`:
+The four queries below are illustrative documentation examples. The separate
+`app/persistence/queries.sql` contains six representative examples; the
+application does not load or execute that file at runtime. Runtime CRUD and
+run/solution retrieval use parameterized SQL in
+`app/persistence/repositories.py`. Runtime metrics and solution comparison are
+computed in `app/engine/metrics.py`, called by `app/engine/solvers.py`.
+
+| Documentation example | Corresponding `queries.sql` example | Differences |
+| --- | --- | --- |
+| 5.1 Capacity utilization | 2 | Different output aliases, status labels and ordering; the file also returns remaining seats. |
+| 5.2 Skill deficits | 4 | Equivalent joins and filtering; selected column order differs. |
+| 5.3 Rank distribution | 3 | Human-readable choice labels instead of numeric rank buckets; output aliases differ. |
+| 5.4 Re-allocation audit | None | Documentation-only self-join; runtime comparison uses Python metrics. |
+
+The SQL file additionally illustrates full assignment details (1), fixed-lock
+compliance (5), and run history (6). Bind `:solution_id` for single-solution
+examples and `:solution_a_id`/`:solution_b_id` for the audit. Skill-gap queries
+join the current cohort tables; they do not reconstruct historical inputs.
 
 ### 5.1 Project Allocation & Capacity Utilization Analysis
-Computes assigned headcounts, minimum/maximum capacity utilization percentages, and flags under-allocated or full projects:
+Computes assigned headcounts, maximum-capacity utilization percentages, and
+capacity status. Unlike an application-level feasibility check, this example
+only checks project headcounts:
 ```sql
 SELECT 
     p.id AS project_id,
@@ -282,6 +308,7 @@ SELECT
     COUNT(a.student_id) AS assigned_count,
     ROUND(CAST(COUNT(a.student_id) AS REAL) / p.max_capacity * 100.0, 1) AS max_capacity_utilization_pct,
     CASE 
+        WHEN COUNT(a.student_id) > p.max_capacity THEN 'OVER_CAPACITY'
         WHEN COUNT(a.student_id) < p.min_capacity THEN 'UNDER_MIN_CAPACITY'
         WHEN COUNT(a.student_id) = p.max_capacity THEN 'AT_MAX_CAPACITY'
         ELSE 'FEASIBLE'
@@ -295,7 +322,9 @@ ORDER BY p.id ASC;
 ```
 
 ### 5.2 Student Skill Deficit & Gap Analysis
-Identifies assigned students who do not meet the minimum skill level requested by their assigned project:
+Identifies assigned students who do not meet the minimum skill level requested
+by their assigned project. An individual mandatory-skill deficit does not prove
+team infeasibility: another assigned student may cover that requirement:
 ```sql
 SELECT 
     a.solution_id,
@@ -342,7 +371,10 @@ ORDER BY MIN(COALESCE(a.preference_rank, 999)) ASC;
 ```
 
 ### 5.4 Cross-Solution Re-Allocation Audit
-Identifies students who were assigned to different projects between two alternative solutions (e.g. Solution A vs Solution B):
+Identifies students present in both solutions who were assigned to different
+projects (e.g. Solution A vs Solution B). The illustrative rank delta uses 99
+for an unranked assignment; this is not the runtime comparison policy in
+`app/engine/metrics.py`:
 ```sql
 SELECT 
     s.id AS student_id,
