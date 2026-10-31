@@ -2,17 +2,36 @@
 
 ## Current verified test status — 31 October 2026
 
-The full suite completed with **612 passed in 6.48s**, with no failures, skips,
+The full suite completed with **613 passed in 5.58s**, with no failures, skips,
 or expected failures. The command executed from the repository root was:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider --basetemp=/tmp/deliverable2-pytest
+PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider
 ```
 
-The dedicated temporary directory was removed afterward. Deliverable 2 also
-passed an isolated SQLite persistence check across separate Python processes;
-see [the integration verification](team_b_integration_verification.md#deliverable-2-relational-persistence--31-october-2026).
-Ruff and the historical refactor checks below were not rerun for this verification.
+This includes `tests/test_process_persistence.py`, which writes a real Flask
+assignment run in one Python process and retrieves the complete snapshot and
+recomputed metrics in another after the writer exits. Both processes use only
+a disposable SQLite file; integrity/FK checks and cleanup are asserted.
+The focused command returned **1 passed in 0.98s**:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider tests/test_process_persistence.py
+```
+
+| Required category | Representative automated tests |
+| --- | --- |
+| Component | `test_contract_and_engine.py`, `test_solution_metrics.py`, `test_visualization_component.py` |
+| Database | `test_persistence.py`, `test_database_validation.py`, `test_process_persistence.py` |
+| Integration | `test_component_integration.py`, `test_team_b_application.py`, `test_engine_execution.py` |
+| Edge cases | `test_edge_cases.py` (15 numbered cases), `test_bilp_feasibility.py`, `test_bilp_alternatives.py` |
+
+All modules are under `tests/` and are included by the full-suite command.
+See [the integration verification](team_b_integration_verification.md) for
+restart evidence and historical results. Solver status/interruption tests use
+simulated outcomes, not a demonstrated CBC wall-clock timeout. Historical input
+snapshots remain open (DB-04 in the validation checklist). Ruff lint and format
+checks passed for the new test only; project-wide quality checks were not rerun.
 
 ## Historical validation-branch status — 21 October 2026
 

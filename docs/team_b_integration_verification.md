@@ -1,10 +1,9 @@
 # Team B — Milestone 6 integration verification
 
-**Status:** Integrasjon verifisert mot nåværende applikasjon; endelig integrasjon med Team A gjenstår.
-
-This verifies the application currently on `teamB/build_solver`. It does not
-verify unmerged or future Team A changes. No Team A files, shared interfaces,
-or production code were modified in this milestone.
+**Current verification scope:** the integrated application on
+`resolve_edgecases`, checked on 31 October 2026. The Milestone 6 results below
+refer to the older `teamB/build_solver` state; they do not describe current
+failures or establish that a merge into main has occurred.
 
 ## Deliverable 2: relational persistence — 31 October 2026
 
@@ -56,6 +55,35 @@ pytest temporary directory and harness were removed afterward. This result
 supersedes the older full-suite result below; that result remains as historical
 milestone evidence.
 
+## Deliverable 7: reproducible process restart — 31 October 2026
+
+The earlier temporary harness now has a repository test counterpart in
+`tests/test_process_persistence.py`.
+Run it from the repository root with runtime and development dependencies installed:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider tests/test_process_persistence.py
+```
+
+Recorded result: **1 passed in 0.98s**. The test waits for the writer process to
+exit successfully before starting a separate reader process via the same Python
+interpreter. The writer uses the real Flask route and assignment engine. The
+reader compares the complete saved run snapshot, retrieves each solution,
+recomputes metrics, and requests run/solution pages. Both phases verify **1 run,
+3 solutions, 30 assignments**, SQLite integrity, enabled foreign keys, and
+rejection of orphan solution/student/project references. A temporary directory
+contains the database and snapshot and is removed after both processes exit.
+
+Full regression command and result:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider
+```
+
+**613 passed in 5.58s**, with no failures, skips, or expected failures. This is
+the current result; the 612-case result above predates the new regression test.
+This adds repeatable database evidence without changing application behavior.
+
 ## Reproduce the automated checks
 
 From the repository root, activate an environment with `requirements-dev.txt`
@@ -85,7 +113,8 @@ python -m ruff format --check app tests run.py
 Recorded results on 2026-10-22: five new integration cases passed; focused suite
 **190 passed in 3.16s**; full suite **596 passed, 1 failed in 5.69s**, with no
 skips or xfails. Ruff lint passed; formatting reported **47 files already
-formatted**. The full pytest command exits unsuccessfully due to the issue below.
+formatted**. That full pytest command exited unsuccessfully due to the HTML assertion
+subsequently corrected.
 That historical run was not green; see the dated Deliverable 2 result above.
 
 ## What the integration tests establish
@@ -116,13 +145,10 @@ be Pareto-optimal or to represent three different strategies in one run.
 
 ## Team A follow-up
 
-1. **Existing HTML assertion:**
+1. **Historical HTML assertion resolved:**
    `tests/test_visualization_component.py::test_compare_two_alternatives_of_a_run`
-   searches response bytes for `Cloud Data Pipeline & Lakehouse`; Jinja correctly
-   emits `Cloud Data Pipeline &amp; Lakehouse`. The test remains unchanged and
-   unskipped. Team A should compare escaped HTML or parsed visible text on its
-   own branch. Milestone 5 also reproduced this assertion problem with the mock
-   engine, independently of BILP.
+   now checks `html.escape(project.title).encode()`. The current full suite
+   passes this assertion; the older recorded failure is historical evidence.
 2. **WARNING presentation:** `trigger_run` uses the generic danger flash for
    WARNING, and the run detail template uses a generic status badge. Status and
    retained solutions are accessible. Team A should decide how to distinguish
@@ -133,9 +159,9 @@ This document is a handoff note; no external message has been sent to Team A.
 
 ## Final integration gate
 
-After Team A's PR is reviewed and merged, create a new integration branch from
-updated main only with explicit permission. Bring in Team B's changes and repeat
-all checks above on the combined code. Coordinate Team A changes with them.
+The current feature-branch checks cover the integrated implementation. They do
+not establish review, approval, or merge status. Repeat verification after any
+further integration changes before merging into main.
 Instructor approval of Team B's model has been received, as reported by the
-student. Code review and successful testing of the combined implementation
-remain required before merging Team B's implementation into main.
+student. The current combined implementation passes the recorded checks;
+code review and any required approval remain separate prerequisites to merge.
