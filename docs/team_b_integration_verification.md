@@ -6,6 +6,56 @@ This verifies the application currently on `teamB/build_solver`. It does not
 verify unmerged or future Team A changes. No Team A files, shared interfaces,
 or production code were modified in this milestone.
 
+## Deliverable 2: relational persistence — 31 October 2026
+
+**Result: PASS.** A disposable SQLite database and the real Flask assignment
+engine saved **1 completed run, 3 solutions, and 30 assignments for 10 students**.
+The first application process exited, closing its database connections. A
+separate Python process created a new Flask application against the same file
+and retrieved the complete run, solutions, and assignments. The retrieved run
+matched the saved snapshot, including configuration and metrics. Independently
+recomputed solution metrics matched the stored indicators; run and solution
+pages returned HTTP 200 after restart.
+
+Before and after restart, `PRAGMA foreign_keys` returned 1,
+`PRAGMA foreign_key_check` returned no violations, and `PRAGMA integrity_check`
+returned `ok`. Attempts to replace assignment solution, student, and project
+references with nonexistent IDs raised `sqlite3.IntegrityError`; savepoints
+rolled back each probe. Independent allocation checks verified student coverage,
+capacity, mandatory requirements, fixed locks, and distinct alternatives.
+
+### Reproduction procedure used
+
+The check ran as `python /tmp/verify_deliverable2.py`. This temporary harness
+was removed after verification and is not a repository test. To reproduce its
+procedure without touching production data:
+
+1. Create a `tempfile.TemporaryDirectory` and pass its `integration.db` path to
+   `create_app({"TESTING": True, "DATABASE_PATH": ...})` in a child Python process.
+2. Through Flask's test client, POST `/load-scenario/standard`, then POST
+   `/runs/trigger` with `primary_strategy=PREFERENCE` and `max_alternatives=3`.
+   Retrieve the full run with `AssignmentEngine.get_run()` using the ID from
+   `list_runs()`, verify allocations, and save `dataclasses.asdict(run)` as JSON
+   in the temporary directory. Check SQL row counts and the integrity probes
+   described above, then exit the client context and process.
+3. Start another child Python process with the same database path. Retrieve the
+   run and each solution; compare the complete JSON snapshot, recompute metrics
+   with `compute_solution_indicators()`, repeat allocation and integrity checks,
+   and GET the run and solution pages. Exit this process before cleanup.
+4. Remove the temporary directory, including the database, WAL/SHM files, and
+   snapshot. No application code, existing tests, or production data were changed.
+
+The full regression command actually executed was:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider --basetemp=/tmp/deliverable2-pytest
+```
+
+**612 passed in 6.48s**, with no failures, skips, or expected failures. The
+pytest temporary directory and harness were removed afterward. This result
+supersedes the older full-suite result below; that result remains as historical
+milestone evidence.
+
 ## Reproduce the automated checks
 
 From the repository root, activate an environment with `requirements-dev.txt`
@@ -36,7 +86,7 @@ Recorded results on 2026-10-22: five new integration cases passed; focused suite
 **190 passed in 3.16s**; full suite **596 passed, 1 failed in 5.69s**, with no
 skips or xfails. Ruff lint passed; formatting reported **47 files already
 formatted**. The full pytest command exits unsuccessfully due to the issue below.
-Do not describe the full suite as green.
+That historical run was not green; see the dated Deliverable 2 result above.
 
 ## What the integration tests establish
 

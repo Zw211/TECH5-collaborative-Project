@@ -1,6 +1,20 @@
 # Testing and code quality
 
-## Verified validation-branch status
+## Current verified test status — 31 October 2026
+
+The full suite completed with **612 passed in 6.48s**, with no failures, skips,
+or expected failures. The command executed from the repository root was:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 pytest -v -p no:cacheprovider --basetemp=/tmp/deliverable2-pytest
+```
+
+The dedicated temporary directory was removed afterward. Deliverable 2 also
+passed an isolated SQLite persistence check across separate Python processes;
+see [the integration verification](team_b_integration_verification.md#deliverable-2-relational-persistence--31-october-2026).
+Ruff and the historical refactor checks below were not rerun for this verification.
+
+## Historical validation-branch status — 21 October 2026
 
 On 21 October 2026, the full suite completed with:
 
@@ -19,7 +33,7 @@ and equal bounds. Each reaches `AssignmentEngine.execute_run()`, which raises
 
 The user explicitly limited this change to refactoring and deferred solver
 implementation to a separate PR. The four failing cases and their assertions
-remain unchanged. This branch does **not** satisfy a passing-suite merge gate.
+remain unchanged. That historical run did **not** satisfy a passing-suite merge gate.
 
 All 12 expected-failure markers, including their reasons and exception
 conditions, match the freshly fetched `origin/main` at `023e00e`. No new
@@ -68,7 +82,7 @@ describe parameter and return types; they do not replace runtime validation.
 
 Do not check a PR's passing-tests box after a partial run or a
 `KeyboardInterrupt`. Let the full command finish and report its actual summary.
-Keep the passing-tests checkbox unchecked while the four failures remain.
+Use the current completed run when reporting the passing-tests status.
 
 ## Responsibilities and behaviour preserved
 
