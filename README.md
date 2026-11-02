@@ -111,27 +111,18 @@ Navigate to **`http://127.0.0.1:5000`** in your browser.
 
 ## 4. Automated Testing & Verification
 
-The repository contains **50 automated tests** structured to guide development for both teams:
+Verified on **31 October 2026**: **612 passed in 6.48s**, with no failures,
+skips, or expected failures.
 
 ```powershell
 # Run the complete test suite
 .\.venv\Scripts\pytest -v
 ```
 
-### Understanding Test Results in the Starter Carcass:
-When you run pytest on the starter carcass, you will see:
-- **35 tests PASS**: Verifies domain models, 3NF database persistence, cohort validation, contract compliance, mock engine substitutability, dashboard, student/lock workflows, and scenario runners.
-- **15 tests XFAIL (Expected Failures)**:
-  - **Team A Tasks (3 xfails)** in `tests/test_visualization_component.py`:
-    - `test_skills_crud_workflow`: Skill creation and catalog management.
-    - `test_projects_crud_workflow`: Project creation and requirement matrix parsing.
-    - `test_compare_solutions_view`: Side-by-side solution comparison controller.
-  - **Team B Tasks (12 xfails)**:
-    - 4 metrics tests in `tests/test_metrics.py` (Gini coefficient, skill fit, solution indicators, comparison).
-    - 1 alternative generation test in `tests/test_solvers.py`.
-    - 7 solver-dependent edge cases in `tests/test_edge_cases.py` (cases 1, 2, 3, 4, 13, 14, 15).
-
-**Goal for Students:** As Team A implements the project/skill forms and comparison views, and Team B implements the solver and metrics, these 15 tests will cleanly transition to passing (`XPASS` / `PASSED`).
+Deliverable 2 relational persistence also passed a separate-process restart
+check using an isolated SQLite database. See
+[the integration verification](docs/team_b_integration_verification.md#deliverable-2-relational-persistence--31-october-2026)
+for evidence, the exact regression command, and reproduction steps.
 
 ---
 
