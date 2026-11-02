@@ -1,158 +1,158 @@
-# TECH5 Assignment Support System: Reproducible Demonstration Walkthrough
+# Deliverable 8: Reproducible Application Demonstration
 
-## 1. Demonstration Overview
+Use the existing Flask application to demonstrate alternatives and a visible
+trade-off, recommendations, a fixed assignment and rerun, and infeasibility.
+Allow approximately 5–10 minutes. Run comparisons before changing scenarios.
 
-This guide provides instructors, evaluators, and students with an exact, reproducible walkthrough of the **Student-to-Project Assignment Decision Support System**. It exercises all core functional capabilities across the four benchmark cohorts pre-configured in the platform.
+## 1. Setup, isolated startup, and reset
 
-### Quick Start
-1. Ensure the virtual environment is activated:
-   ```powershell
-   .\.venv\Scripts\activate
-   ```
-2. Start the integrated application:
-   ```powershell
-   python run.py
-   ```
-3. Open your browser to: **`http://127.0.0.1:5000`**
+From the repository root, use Python 3.10 or newer and install the runtime
+dependencies, including the pinned PuLP/CBC solver:
 
----
-
-## 2. Scenario 1: Standard Cohort (Trade-Off Benchmark)
-
-### 2.1 Scenario Objective
-Demonstrates multi-objective Pareto alternatives, distinct solutions generation via no-good integer cuts, and comparative trade-off analysis between student preference satisfaction and project skill fit.
-
-### 2.2 Cohort Composition
-- **Students**: 10 students (`S01` to `S10`) with complementary competencies across Python, SQL, Machine Learning, Web Dev, and FinTech.
-- **Projects**: 4 projects (`P1`: FinTech, `P2`: Data Lakehouse, `P3`: Healthcare ML, `P4`: Full-Stack Web) with capacity bounds $[1, 3]$ each (Total Capacity = 12 $\ge 10$ students).
-- **Constraints**: No fixed pre-allocations initially.
-
-### 2.3 Step-by-Step Execution (Web Interface)
-1. In the top navigation, click **Dashboard** or **Scenarios**.
-2. Click the green button **"Load Scenario"** under **Standard Trade-Off Benchmark**.
-3. A success notification will confirm the cohort is loaded into SQLite (10 students, 4 projects, 5 skills).
-4. In the **Optimization Run Trigger Panel**:
-   - Strategy: `Student Preference Maximization (Minimize Rank Regret)`
-   - Distinct Alternatives: `3 Distinct Solutions`
-   - Click **"Launch Optimization Run"**.
-5. You are redirected to `/runs/{run_id}`:
-   - Notice that **3 distinct solutions** have been computed and persisted.
-   - **Alternative 1 (Preference-Oriented)**:
-     - Mean Skill Fit: ~`82.5%`
-     - Mean Preference Rank: ~`1.20` (8 students get 1st choice, 2 get 2nd choice)
-     - Worst Rank: `2`
-     - Gini Inequality: `0.167`
-   - **Alternative 2 (Skill-Fit Oriented)**:
-     - Mean Skill Fit increases to ~`92.5%`
-     - Mean Preference Rank adjusts to ~`1.50`
-   - **Alternative 3 (Balanced Trade-Off)**:
-     - Provides an egalitarian compromise between skill fit and preference satisfaction.
-
-### 2.4 Side-by-Side Solution Comparison
-1. In the top navigation, click **Compare**.
-2. Select:
-   - Solution A: `Alternative 1 (PREFERENCE)`
-   - Solution B: `Alternative 2 (SKILL_FIT)`
-   - Click **"Compare Solutions"**.
-3. The comparison dashboard displays:
-   - **Delta Metrics**: Visual indicator badges displaying $\Delta$ Mean Skill Fit (+10.0%), $\Delta$ Mean Rank (+0.30), and $\Delta$ Gini.
-   - **Re-Allocation Table**: Highlights the exact students who moved projects, along with their individual rank change ($\Delta Rank$).
-
-### 2.5 Inspecting Decision-Support Recommendations
-1. Navigate into any generated solution (e.g. `/solutions/{solution_id}`).
-2. The **Decision Support & Recommendations Panel** presents three inspectable recommendations:
-   - **Student Preference Maximization**: Identifies the alternative with lowest average rank and minimum regret, supported by exact calculated metrics.
-   - **Project Skill Quality Assurance**: Identifies the alternative with maximum skill fit and minimum unmet soft requirements.
-   - **Balanced Egalitarian Compromise**: Identifies the alternative minimizing the rank Gini coefficient and rank variance.
-3. Each recommendation explicitly details the **criteria evaluated**, the **calculated evidence**, and the **administrative policy advice**, distinguishing objective facts from normative guidance.
-
-### 2.6 Headless In-Process Contract Execution (Python)
-The Assignment Engine can be invoked directly in Python without starting the web server, demonstrating contract independence:
-```python
-from app.contract import contract
-from app.engine import solvers
-
-# Initialize the engine (implements contract.AssignmentEngineContract)
-engine = solvers.AssignmentEngine()
-
-# Prepare structured run request
-request = contract.RunRequest(
-    primary_strategy="PREFERENCE",
-    max_alternatives=3,
-)
-
-# Execute optimization via the internal contract
-outcome = engine.execute_run(request)
-print(f"Status: {outcome.status.value}")
-print(f"Solutions generated: {len(outcome.solutions)}")
-for sol in outcome.solutions:
-    print(f"Alt {sol.alternative_number} ({sol.strategy_name}): "
-          f"Mean Rank={sol.indicators['fairness']['mean_rank']}, "
-          f"Mean Skill Fit={sol.indicators['efficiency']['mean_skill_fit']:.2f}")
+```sh
+python -m venv .venv
 ```
 
----
+Activate with `source .venv/bin/activate` on macOS/Linux or
+`.\.venv\Scripts\Activate.ps1` in Windows PowerShell, then:
 
-## 3. Scenario 2: Fixed Assignment & Ripple Effect Analysis
+```sh
+python -m pip install -r requirements.txt
+```
 
-### 3.1 Scenario Objective
-Demonstrates administrative pre-allocation locks ($x_{s^*, p^*} = 1$), strict constraint preservation, and the resulting ripple effect on peer assignments.
+Start the real application with a fresh temporary SQLite database. Paste this
+multiline command into the activated shell (macOS/Linux or PowerShell):
 
-### 3.2 Cohort Composition
-- Base standard cohort with student **`S02` (Bob Smith)** locked to project **`P2` (Cloud Data Pipeline)** under an approved research grant, even though Bob's #1 preference is `P1`.
+```sh
+python -c "import tempfile
+from pathlib import Path
+from app import create_app
+with tempfile.TemporaryDirectory(prefix='tech5-demo-') as directory:
+    app = create_app({'DATABASE_PATH': Path(directory) / 'demo.db'})
+    app.run(host='127.0.0.1', port=5001, debug=False)
+"
+```
 
-### 3.3 Step-by-Step Execution
-1. Navigate to **Scenarios** and click **Load Scenario** under **Fixed Assignment Scenario**.
-2. In the top navigation, click **Fixed Locks**.
-   - Notice `S02` $\to$ `P2` is listed with status `APPROVED` and justification noted.
-3. Return to **Dashboard** and click **"Launch Optimization Run"**.
-4. Inspect the generated solution:
-   - In Solution 1, student `S02` is strictly assigned to `P2` (`Fixed: YES` badge).
-   - Because `P2` now has 1 fewer open seat, observe how student `S03` or `S07` is re-routed to their 2nd preference.
-5. In the solution view, use the **"Lock Student"** dropdown to interactively pin another student (e.g. `S01` to `P1`) and click **"Save Lock & Re-run Optimization"** to witness real-time interactive re-solving!
+Open **http://127.0.0.1:5001/**. Keep that terminal open; stop with **Ctrl+C**.
+Normal shutdown removes the temporary database. Restart this command for a
+fresh session. It uses the existing `create_app()` factory and does not touch
+`instance/tech5_assignment.db`. Plain `python run.py` instead uses that persistent
+database and port 5000, so use the isolated command for this walkthrough.
+If port 5001 is occupied, select another port in the command and browser URL.
 
----
+Choose **Administrator (Full Control)** in the top-right **Role** selector.
+For a repeat within the same demo session:
 
-## 4. Scenario 3: Capacity Deficit (Mathematical Infeasibility)
+1. Dashboard → **Clear All Solutions**; accept the confirmation.
+2. Scenarios → **Load Standard Benchmark →**.
+3. Check Dashboard: **Student Cohort 10**, **Active Projects 4**,
+   **Total Max Capacity 12**, **Fixed Locks 0**; no previous runs remain.
 
-### 4.1 Scenario Objective
-Validates that the system rigorously detects structural infeasibility when total project capacity is strictly less than cohort size ($\sum u_p < |S|$), halting before solver failure and providing clear diagnostic guidance.
+The standard dataset also contains five skills. Loading a scenario replaces the
+cohort and locks but retains old run/solution records while deleting their
+assignments through foreign-key cascades. It is not a complete reset: clear
+solutions first. Use these reset actions only in the isolated demo database.
 
-### 4.2 Cohort Composition
-- **Students**: 10 students.
-- **Projects**: Capacities reduced to 2, 2, 1, 1 (Total Capacity = 6 seats for 10 students).
+## 2. Alternatives and a preference/skill-fit trade-off
 
-### 4.3 Step-by-Step Execution
-1. Navigate to **Scenarios** and click **Load Scenario** under **Capacity Deficit Scenario**.
-2. On the Dashboard KPI cards:
-   - Student Cohort: `10`
-   - Total Max Capacity: `6`
-   - Red Warning: `⚠️ Deficit: 4 unassignable students`
-3. Click **"Launch Optimization Run"**.
-4. The system immediately catches the mathematical violation:
-   - Run Status: `INFEASIBLE`
-   - Diagnostic Banner:
-     ```
-     Insufficient overall capacity: total cohort size (10) exceeds aggregate maximum project capacity (6).
-     ```
-   - Zero solutions are created, and helpful remediation advice is displayed (e.g. increase project capacities or enable partial allocations).
+1. Load the standard benchmark as above. On Dashboard select:
+   - **Primary Objective Strategy:** Student Preference Maximization
+     (Minimize Rank Regret).
+   - **Distinct Alternatives to Retain:** 3 Distinct Solutions.
+   - Click **Launch Optimization Run →** (`POST /runs/trigger`).
+2. At `/runs/<run_id>`, expect **COMPLETED (3 Alternatives)**. All three use
+   PREFERENCE; no-good cuts produce different allocations under that objective.
+   Note this run's ID and **Alternative #1**, or keep its page in a browser tab.
+3. Return to Dashboard without reloading data or adding locks. Select
+   **Project Skill Fit Maximization (Highest Quality Delivery)** and **1 Solution**;
+   launch again. Note this SKILL_FIT run's ID and Alternative #1.
+4. Open **Compare** (`GET /compare`). Choose the earlier PREFERENCE Alternative
+   #1 as **Baseline Solution (A)** and the SKILL_FIT Alternative #1 as
+   **Comparison Solution (B)**. Labels include strategy and the run ID prefix.
+   Click **Compare Allocations →**.
+5. Show the skill-fit/rank deltas and changed-student table. Higher skill fit is
+   better; lower mean preference rank is better. The cross-run warning is
+   expected: here the cohort and locks were deliberately unchanged; only the
+   objective and number of retained alternatives differed.
 
----
+**Verified local example (2 November 2026):** PREFERENCE Alternative #1 displayed
+**98.3%** skill fit and mean rank **1.00**; SKILL_FIT displayed **100.0%** and
+**1.20**. This is a genuine trade-off: improving skill fit worsened preferences.
+Two headless rehearsals produced these results. CBC can select other tied
+SKILL_FIT optima, so do not promise mean rank 1.20 or particular student moves.
+For completed optimal solves on this cohort, use the checkpoint **higher skill
+fit and worse mean rank**, rather than exact secondary metrics. If it is absent
+or the run reports WARNING/FAILED, stop and investigate before presenting.
+Distinct alternatives are not a guarantee of Pareto optimality, despite older
+wording still present in the application.
 
-## 5. Scenario 4: Contradictory Fixed Constraints
+## 3. Recommendation
 
-### 5.1 Scenario Objective
-Verifies domain validation and relational integrity rejection when an administrator attempts to lock more students to a project than its maximum capacity ($|F_p| > u_p$).
+Return to the three-alternative PREFERENCE run → **View Recommendations →**
+(`GET /recommendations/<run_id>`). This link is on the run overview, not the
+solution details page.
 
-### 5.2 Cohort Composition
-- Project `P1` has a maximum capacity of 3 students.
-- 4 students (`S01`, `S02`, `S05`, `S08`) are locked to `P1`.
+Show one recommendation's **criteria, calculated evidence, and policy advice**,
+plus the indicator comparison table. Explain that it compares alternatives
+within this run, not across the two objective runs. Preference priority ranks
+unranked count first, then mean/worst rank; skill priority uses skill fit and
+soft gaps; egalitarian priority uses Gini, variance, and mean rank. Priorities
+may recommend the same alternative or report ties; three different winners are
+not required.
 
-### 5.3 Step-by-Step Execution
-1. Navigate to **Scenarios** and click **Load Scenario** under **Contradictory Fixed Assignments Scenario**.
-2. Attempt to trigger an optimization run.
-3. The platform displays a clear validation error:
-   ```
-   Fixed assignments (4) for project 'P1' exceed its maximum capacity (3).
-   ```
-4. Optimization is safely blocked, protecting database integrity.
+## 4. Fixed assignment and rerun
+
+1. Open **Fixed Locks** (`GET /fixed-assignments`). In its form select:
+   **Fredrik Berg (S06)**, **Cloud Data Pipeline & Lakehouse (P2 - Max 3)**,
+   and **APPROVED**. Optionally enter a short demo reason.
+2. Click **Lock Assignment Constraint** (`POST /fixed-assignments/new`).
+   Confirm S06→P2 is listed. Saving a lock alone does not recalculate solutions.
+3. Dashboard → select PREFERENCE and 3 Distinct Solutions →
+   **Launch Optimization Run →**. In each alternative choose
+   **Explore Allocations →**: S06 must be assigned to P2 with **FIXED LOCK**.
+   This changes S06 from his original first-choice P3; do not promise particular
+   changes to other students.
+
+The solution table's separate **Lock & Rerun** action pins that row's existing
+student/project pair and immediately reruns with default PREFERENCE/3 settings.
+It cannot select an arbitrary new project. The explicit Fixed Locks form above
+makes the changed input clear and avoids relying on which tied allocation appears.
+
+## 5. Infeasible case
+
+After completing the comparisons:
+
+1. Dashboard → **Clear All Solutions**; confirm.
+2. Scenarios → **Load Infeasible Capacity Scenario →**
+   (`POST /load-scenario/infeasible`).
+3. Dashboard shows **10 students**, **6 maximum places**, and **Capacity Deficit**.
+4. Launch PREFERENCE/3 again. The run must show **INFEASIBLE**, zero solutions,
+   and: `Insufficient overall capacity: total cohort size (10) exceeds aggregate
+   maximum project capacity (6).`
+
+Validation detects this before optimization; no partial allocation is offered.
+To repeat the whole demonstration, follow the reset steps in section 1.
+The existing fixed and contradictory-lock scenarios remain available but are
+not needed for this concise four-requirement demonstration.
+
+## Verification and presentation rehearsal
+
+On 2 November 2026, the sequence above was checked twice through Flask's test
+client with the real AssignmentEngine/CBC and disposable SQLite storage:
+three PREFERENCE alternatives, a SKILL_FIT trade-off, comparison and recommendation
+pages, three rerun alternatives preserving S06→P2, capacity-deficit diagnostics,
+reset, and temporary-database cleanup all passed. This is application-level
+verification, not a manual browser rehearsal. The isolated startup command
+also served a live HTTP 200 response at `/scenarios` on port 5001 and shut down
+cleanly with Ctrl+C (SIGINT). The existing tests in
+`test_team_b_application.py`, `test_component_integration.py`,
+`test_visualization_component.py`, and `test_process_persistence.py` returned
+**78 passed in 4.09s** using `pytest -v -p no:cacheprovider` (modules under
+`tests/`, with `PYTHONDONTWRITEBYTECODE=1`).
+
+Before presenting, rehearse in the actual browser/environment: confirm CBC can
+run, links/dropdowns are usable, confirmation dialogs appear, metrics and tables
+are readable, run IDs identify the intended comparison, and the isolated server
+starts/stops correctly. Do not use solver tie order or generated UUIDs as fixed
+presentation checkpoints. See [testing and quality](testing_and_quality.md) for
+existing automated-suite commands.
