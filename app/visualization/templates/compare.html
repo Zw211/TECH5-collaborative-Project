@@ -109,6 +109,19 @@
             <span class="kpi-sub">Lower is fairer</span>
           {% endif %}
         </div>
+
+        <div class="kpi-card">
+          <span class="kpi-label">&Delta; Worst Individual Rank</span>
+          {% if worst_rank is none %}
+            <span class="kpi-value">n/a</span>
+            <span class="kpi-sub">Not reported by the engine</span>
+          {% else %}
+            <span class="kpi-value {% if worst_rank.delta < 0 %}text-success{% elif worst_rank.delta > 0 %}text-danger{% endif %}">
+              {{ worst_rank.delta|signed_number(0) }}
+            </span>
+            <span class="kpi-sub">A: {{ worst_rank.a_label }} &rarr; B: {{ worst_rank.b_label }}</span>
+          {% endif %}
+        </div>
       </div>
 
       <!-- Trade-off Analytical Summary -->

@@ -873,6 +873,10 @@ def scenarios_page() -> str:
 @web_bp.post("/load-scenario/<scenario_name>")
 def load_scenario(scenario_name: str) -> flask.Response:
     """Populates database with a designated reproducible benchmark cohort."""
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.scenarios_page"))
+
     if scenario_name == "standard":
         data = demo_data.get_standard_scenario()
     elif scenario_name == "fixed":
@@ -918,6 +922,10 @@ def load_scenario(scenario_name: str) -> flask.Response:
 @web_bp.post("/clear-data")
 def clear_data() -> flask.Response:
     """Clears all cohort and constraint data."""
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.dashboard"))
+
     repositories.RunRepository().clear_all_cohort_data()
     flask.flash("All cohort data cleared.", "info")
     return flask.redirect(flask.url_for("visualization_web.dashboard"))
@@ -1048,6 +1056,30 @@ def view_solution(solution_id: str) -> Any:
     )
 
 
+def _rerun_settings(run: models.AssignmentRun | None) -> tuple[str, int]:
+    """Returns the strategy and alternative count to reuse in a rerun.
+
+    Reusing the source run's settings keeps the rerun comparable with the
+    solution the lock was taken from.
+
+    Args:
+        run: The run the locked solution belongs to, if it still exists.
+
+    Returns:
+        The run's strategy key and alternative count, or the contract
+        defaults when the run is missing or its saved settings are invalid.
+    """
+    default = contract.RunRequest(students=[], projects=[])
+    config = run.configuration if run else {}
+    strategy = config.get("primary_strategy")
+    max_alternatives = config.get("max_alternatives")
+    if not validation.validate_run_settings(
+        strategy, max_alternatives
+    ).is_valid:
+        return default.strategy_key, default.max_alternatives
+    return strategy, max_alternatives
+
+
 @web_bp.post("/solutions/<solution_id>/lock-and-rerun")
 def lock_and_rerun(solution_id: str) -> flask.Response:
     """Locks a student assignment from a solution and triggers a new run."""
@@ -1097,12 +1129,17 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
     skills = repositories.SkillRepository().list_all()
     fixed = repositories.FixedAssignmentRepository().list_all() + [new_lock]
 
+    strategy, max_alternatives = _rerun_settings(
+        repositories.RunRepository().get_run(source.run_id)
+    )
     engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
     req = contract.RunRequest(
         students=students,
         projects=projects,
         skills=skills,
         fixed_assignments=fixed,
+        strategy_key=strategy,
+        max_alternatives=max_alternatives,
     )
     outcome = engine.validate_inputs(req)
     if not outcome.is_valid or not outcome.is_feasible:
@@ -1115,11 +1152,20 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
         )
     new_run = _execute_validated_request(req)
 
-    flask.flash(
-        f"Student {student_id} locked to Project {project_id}. "
-        "New run generated!",
-        "success",
-    )
+    if new_run.status == "COMPLETED":
+        flask.flash(
+            f"Student {student_id} locked to Project {project_id}. "
+            f"New run generated with the same settings ({strategy}, up "
+            f"to {max_alternatives} alternatives).",
+            "success",
+        )
+    else:
+        flask.flash(
+            f"Student {student_id} locked to Project {project_id}, but the "
+            f"rerun ended with status: {new_run.status}. Inspect "
+            "diagnostics below.",
+            "warning",
+        )
     return flask.redirect(
         flask.url_for("visualization_web.view_run", run_id=new_run.id)
     )
@@ -1128,6 +1174,10 @@ def lock_and_rerun(solution_id: str) -> flask.Response:
 @web_bp.post("/clear-solutions")
 def clear_solutions() -> flask.Response:
     """Clears all solutions in the current run."""
+    if not auth.can_edit_cohort_data():
+        flask.flash("Permission denied.", "danger")
+        return flask.redirect(flask.url_for("visualization_web.dashboard"))
+
     repositories.RunRepository().clear_all_current_solutions()
     flask.flash("All solutions cleared.", "info")
     return flask.redirect(flask.url_for("visualization_web.dashboard"))
@@ -1319,6 +1369,52 @@ def _enrich_changed_assignments(
     return enriched
 
 
+def _worst_rank_label(fairness: dict[str, Any]) -> str:
+    """Formats a solution's worst rank, naming the unranked penalty.
+
+    Args:
+        fairness: The fairness indicators of a solution.
+
+    Returns:
+        "#<rank>", or "Outside preferences" when the worst rank is the
+        engine's penalty for a student assigned outside their list.
+    """
+    worst = fairness["worst_rank"]
+    if worst == fairness.get("unranked_penalty"):
+        return "Outside preferences"
+    return f"#{worst}"
+
+
+def _worst_rank_change(
+    solution_a: models.Solution | None, solution_b: models.Solution | None
+) -> dict[str, Any] | None:
+    """Describes how the worst individual rank changes from A to B.
+
+    Args:
+        solution_a: Baseline solution, if found.
+        solution_b: Comparison solution, if found.
+
+    Returns:
+        A dict with "delta", "a_label" and "b_label", or None if either
+        solution does not report a numeric worst rank.
+    """
+    if solution_a is None or solution_b is None:
+        return None
+    fair_a = solution_a.indicators.get("fairness", {})
+    fair_b = solution_b.indicators.get("fairness", {})
+    if not all(
+        isinstance(f.get("worst_rank"), int)
+        and not isinstance(f.get("worst_rank"), bool)
+        for f in (fair_a, fair_b)
+    ):
+        return None
+    return {
+        "delta": fair_b["worst_rank"] - fair_a["worst_rank"],
+        "a_label": _worst_rank_label(fair_a),
+        "b_label": _worst_rank_label(fair_b),
+    }
+
+
 def _compare_via_contract(
     solution_a_id: str, solution_b_id: str
 ) -> models.RunComparison:
@@ -1333,6 +1429,8 @@ def _compare_via_contract(
 
     Raises:
         KeyError: If either solution cannot be found.
+        ValueError: If the solutions cover different students or use
+            different unranked-rank penalties.
     """
     engine: contract.AssignmentEngineContract = solvers.AssignmentEngine()
     return engine.compare_solutions(solution_a_id, solution_b_id)
@@ -1363,12 +1461,19 @@ def compare_solutions() -> Any:
 
     by_id = {o["id"]: o for o in options}
     comparison: models.RunComparison | None = None
+    worst_rank: dict[str, Any] | None = None
     if sol1 and sol2:
         try:
             comparison = _compare_via_contract(sol1, sol2)
         except KeyError as exc:
             reason = exc.args[0] if exc.args else "unknown solution"
             flask.flash(f"Cannot compare: {reason}", "danger")
+        except ValueError as exc:
+            flask.flash(
+                f"Cannot compare: {exc} The cohort changed between these "
+                "runs, so their indicators are not comparable.",
+                "danger",
+            )
         else:
             students = {
                 s.id: s for s in repositories.StudentRepository().list_all()
@@ -1381,6 +1486,9 @@ def compare_solutions() -> Any:
                 changed_assignments=_enrich_changed_assignments(
                     comparison.changed_assignments, students, projects
                 ),
+            )
+            worst_rank = _worst_rank_change(
+                run_repo.get_solution(sol1), run_repo.get_solution(sol2)
             )
             if sol1 == sol2:
                 flask.flash(
@@ -1405,6 +1513,7 @@ def compare_solutions() -> Any:
         sol_a=by_id.get(sol1),
         sol_b=by_id.get(sol2),
         comparison=comparison,
+        worst_rank=worst_rank,
     )
 
 

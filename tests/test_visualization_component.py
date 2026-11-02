@@ -471,6 +471,61 @@ def test_lock_and_rerun_validates_before_saving(
             assert locks == []
 
 
+def test_lock_and_rerun_reuses_source_run_settings(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A rerun keeps the strategy and K so it is comparable to its source."""
+    client = _make_client(tmp_path, "test_rerun_settings")
+    client.post("/load-scenario/standard")
+    client.post(
+        "/runs/trigger",
+        data={"primary_strategy": "BALANCED", "max_alternatives": "2"},
+    )
+    source_run = repositories.RunRepository().list_runs()[0]
+    source = repositories.RunRepository().get_solution(
+        source_run.solutions[0].id
+    )
+    locked = source.assignments[0]
+
+    res = client.post(
+        f"/solutions/{source.id}/lock-and-rerun",
+        data={
+            "student_id": locked.student_id,
+            "project_id": locked.project_id,
+        },
+        follow_redirects=True,
+    )
+
+    assert b"same settings (BALANCED, up to 2 alternatives)" in res.data
+    rerun = repositories.RunRepository().list_runs()[0]
+    assert rerun.id != source_run.id
+    assert rerun.configuration["primary_strategy"] == "BALANCED"
+    assert rerun.configuration["max_alternatives"] == 2
+    assert {s.strategy_name for s in rerun.solutions} == {"BALANCED"}
+    for summary in rerun.solutions:
+        solution = repositories.RunRepository().get_solution(summary.id)
+        assert any(
+            a.student_id == locked.student_id
+            and a.project_id == locked.project_id
+            and a.is_fixed
+            for a in solution.assignments
+        )
+
+
+def test_rerun_settings_fall_back_to_contract_defaults() -> None:
+    """Missing or invalid saved settings fall back to the defaults."""
+    assert routes._rerun_settings(None) == ("PREFERENCE", 3)
+    broken = models.AssignmentRun(
+        "r", configuration={"primary_strategy": "X", "max_alternatives": 9}
+    )
+    assert routes._rerun_settings(broken) == ("PREFERENCE", 3)
+    saved = models.AssignmentRun(
+        "r",
+        configuration={"primary_strategy": "SKILL_FIT", "max_alternatives": 1},
+    )
+    assert routes._rerun_settings(saved) == ("SKILL_FIT", 1)
+
+
 def _make_client(tmp_path: pathlib.Path, name: str) -> Any:
     """Creates a test client backed by a fresh temporary database."""
     app = create_app(
@@ -614,6 +669,38 @@ def test_student_role_cannot_create_or_delete_skill(
     delete_res = client.post("/skills/py/delete", follow_redirects=True)
     assert b"Permission denied" in delete_res.data
     assert repositories.SkillRepository().get_by_id("py") is not None
+
+
+@pytest.mark.parametrize("role", ["STUDENT", "COORDINATOR"])
+def test_read_only_roles_cannot_load_or_clear_data(
+    tmp_path: pathlib.Path, role: str
+) -> None:
+    """Verifies only administrators can replace or wipe saved data."""
+    client = _make_client(tmp_path, f"test_reset_perm_{role}")
+    client.post("/load-scenario/standard")
+    client.post(
+        "/runs/trigger",
+        data={"primary_strategy": "PREFERENCE", "max_alternatives": "2"},
+    )
+    client.post("/set-role", data={"role": role})
+
+    for path in [
+        "/load-scenario/fixed",
+        "/clear-solutions",
+        "/clear-data",
+    ]:
+        res = client.post(path, follow_redirects=True)
+        assert b"Permission denied" in res.data
+
+    assert len(repositories.StudentRepository().list_all()) == 10
+    assert repositories.FixedAssignmentRepository().list_all() == []
+    assert len(repositories.RunRepository().list_runs()) == 1
+    scenarios_page = client.get("/scenarios").data
+    assert b"Load Standard Benchmark" not in scenarios_page
+    assert b"Clear All Database Records" not in scenarios_page
+    dashboard = client.get("/").data
+    assert b"Clear All Solutions" not in dashboard
+    assert b"/load-scenario/" not in dashboard
 
 
 def test_delete_unknown_skill(tmp_path: pathlib.Path) -> None:
@@ -1030,6 +1117,33 @@ def test_real_indicators_are_rounded_on_run_and_solution_pages(
     assert b"Choice #1:" in run_page
 
 
+def test_capacity_utilization_is_rounded_on_solution_page(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Verifies a 1-of-3 project shows 33.3%, not raw float digits."""
+    client = _make_client(tmp_path, "test_round_util")
+    run = _create_run(client)
+    pages = b"".join(
+        client.get(f"/solutions/{s.id}").data for s in run.solutions
+    )
+    assert b"33.3% filled" in pages
+    assert b"33.33333" not in pages
+
+
+def test_infeasibility_reason_is_listed_once_on_run_page(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A reason that is also a validation error is not shown twice."""
+    client = _make_client(tmp_path, "test_reason_once")
+    client.post("/load-scenario/infeasible")
+    res = client.post(
+        "/runs/trigger",
+        data={"primary_strategy": "PREFERENCE", "max_alternatives": "3"},
+        follow_redirects=True,
+    )
+    assert res.data.count(b"Insufficient overall capacity") == 1
+
+
 def test_compare_shows_rounded_deltas_for_real_alternatives(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -1045,6 +1159,73 @@ def test_compare_shows_rounded_deltas_for_real_alternatives(
         page = client.get(f"/compare?sol1={a.id}&sol2={b.id}").data
         assert routes.format_signed_number(gini, 3).encode() in page
         assert repr(gini).encode() not in page or len(repr(gini)) <= 6
+
+
+def test_compare_runs_with_different_penalties_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A longer preference list changes R_max; comparing must not crash."""
+    client = _make_client(tmp_path, "test_compare_penalty")
+    run_a = _create_run(client)
+    student = repositories.StudentRepository().get_by_id("S01")
+    student.preferences.append(models.Preference("S01", "P4", 4))
+    repositories.StudentRepository().save(student)
+    client.post("/runs/trigger", data={"max_alternatives": 1})
+    run_b = repositories.RunRepository().list_runs()[0]
+
+    res = client.get(
+        f"/compare?sol1={run_a.solutions[0].id}&sol2={run_b.solutions[0].id}"
+    )
+
+    assert res.status_code == 200
+    assert b"Cannot compare" in res.data
+    assert b"same cohort penalty" in res.data
+    assert b"Detailed Allocation Shifts" not in res.data
+
+
+def test_compare_shows_worst_rank_change(tmp_path: pathlib.Path) -> None:
+    """Verifies the compare page reports how the worst-off student fares."""
+    client = _make_client(tmp_path, "test_compare_worst")
+    client.post("/load-scenario/standard")
+    client.post(
+        "/runs/trigger",
+        data={"primary_strategy": "BALANCED", "max_alternatives": "2"},
+    )
+    run = repositories.RunRepository().list_runs()[0]
+    alts = sorted(run.solutions, key=lambda s: s.alternative_number)
+    worst = [s.indicators["fairness"]["worst_rank"] for s in alts]
+
+    page = client.get(f"/compare?sol1={alts[0].id}&sol2={alts[1].id}").data
+
+    assert b"Worst Individual Rank" in page
+    expected = f"A: #{worst[0]} &rarr; B: #{worst[1]}".encode()
+    assert expected in page
+    delta = routes.format_signed_number(worst[1] - worst[0], 0)
+    assert f">\n              {delta}\n".encode() in page
+
+
+def test_worst_rank_change_labels_unranked_penalty() -> None:
+    """A worst rank equal to the M+1 penalty is named, not shown as a rank."""
+
+    def solution(worst: Any) -> models.Solution:
+        return models.Solution(
+            "s",
+            "r",
+            1,
+            "PREFERENCE",
+            indicators={
+                "fairness": {"worst_rank": worst, "unranked_penalty": 4}
+            },
+        )
+
+    change = routes._worst_rank_change(solution(2), solution(4))
+    assert change == {
+        "delta": 2,
+        "a_label": "#2",
+        "b_label": "Outside preferences",
+    }
+    assert routes._worst_rank_change(solution(2), solution(None)) is None
+    assert routes._worst_rank_change(None, solution(2)) is None
 
 
 def test_number_filters_handle_missing_and_zero() -> None:
