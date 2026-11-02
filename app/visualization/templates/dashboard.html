@@ -39,7 +39,7 @@
     <div class="card-body">
       <p style="color: var(--text-muted); margin-bottom: 1.25rem;">
         Executes multi-objective mathematical matching on the current cohort, honoring all capacity and fixed assignment
-        hard constraints while producing distinct Pareto alternatives.
+        hard constraints while producing distinct alternative solutions.
       </p>
 
       {% if can_optimize %}
@@ -88,10 +88,11 @@
         Load pre-packaged benchmark cohorts designed to demonstrate specific matching dilemmas and trade-offs:
       </p>
 
+      {% if can_edit %}
       <div style="display: flex; flex-direction: column; gap: 0.75rem;">
         <form action="{{ url_for('visualization_web.load_scenario', scenario_name='standard') }}" method="POST">
           <button type="submit" class="btn btn-secondary" style="width: 100%; justify-content: flex-start;">
-            <strong>Standard Trade-Off Benchmark</strong> (10 students, 4 projects, 3 distinct Pareto alternatives)
+            <strong>Standard Trade-Off Benchmark</strong> (10 students, 4 projects, 3 distinct alternatives)
           </button>
         </form>
 
@@ -109,6 +110,11 @@
           </button>
         </form>
       </div>
+      {% else %}
+      <p style="color: var(--text-muted);">
+        Only an Administrator can load scenarios, because loading replaces the current cohort.
+      </p>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -169,6 +175,7 @@
   </div>
 </div>
 
+{% if can_edit %}
 <div class="card" style="margin-top: 1.5rem;">
   <div class="card-header">
     <h2 class="card-title" style="color: var(--danger);">&#128465; Delete Solutions</h2>
@@ -185,4 +192,5 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endblock %}

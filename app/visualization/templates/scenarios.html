@@ -10,6 +10,13 @@
   </p>
 </div>
 
+{% if not can_edit %}
+<div class="alert alert-warning">
+  Current role (<strong>{{ current_role }}</strong>) cannot load scenarios or reset data, because both replace the cohort.
+  Switch role to Administrator in the top right.
+</div>
+{% endif %}
+
 <div class="grid-2">
   <!-- Scenario 1 -->
   <div class="card">
@@ -19,13 +26,15 @@
     </div>
     <div class="card-body">
       <p style="color: #334155; margin-bottom: 1rem;">
-        10 students with varied technical competencies (Python, SQL, ML, Web, FinTech) and 4 projects (capacity 3 each = 12 total capacity). Demonstrates 3 distinct Pareto-optimal solutions highlighting the trade-off between student preference satisfaction and project skill fit.
+        10 students with varied technical competencies (Python, SQL, ML, Web, FinTech) and 4 projects (capacity 3 each = 12 total capacity). Demonstrates 3 distinct alternative solutions highlighting the trade-off between student preference satisfaction and project skill fit.
       </p>
+      {% if can_edit %}
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='standard') }}" method="POST">
         <button type="submit" class="btn btn-primary" style="width: 100%;">
           Load Standard Benchmark &rarr;
         </button>
       </form>
+      {% endif %}
     </div>
   </div>
 
@@ -39,11 +48,13 @@
       <p style="color: #334155; margin-bottom: 1rem;">
         Standard cohort with student <strong>S02</strong> locked to Project <strong>P2</strong> (Cloud Data Pipeline) under a formal fellowship grant. Demonstrates strict preservation across all solutions and illustrates how fixing one student impacts outcomes for others.
       </p>
+      {% if can_edit %}
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='fixed') }}" method="POST">
         <button type="submit" class="btn btn-primary" style="width: 100%;">
           Load Fixed Assignment Scenario &rarr;
         </button>
       </form>
+      {% endif %}
     </div>
   </div>
 
@@ -57,11 +68,13 @@
       <p style="color: #334155; margin-bottom: 1rem;">
         Reduces project capacities such that total available places (6) is strictly less than cohort size (10). Demonstrates graceful mathematical infeasibility detection and bottleneck diagnostic reporting without crashing.
       </p>
+      {% if can_edit %}
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='infeasible') }}" method="POST">
         <button type="submit" class="btn btn-danger" style="width: 100%;">
           Load Infeasible Capacity Scenario &rarr;
         </button>
       </form>
+      {% endif %}
     </div>
   </div>
 
@@ -75,15 +88,18 @@
       <p style="color: #334155; margin-bottom: 1rem;">
         Contains 4 fixed assignments designated for Project P1 (which has a maximum capacity of 3). Demonstrates pre-solver validation error reporting and clear rejection of contradictory inputs.
       </p>
+      {% if can_edit %}
       <form action="{{ url_for('visualization_web.load_scenario', scenario_name='conflicting') }}" method="POST">
         <button type="submit" class="btn btn-secondary" style="width: 100%; border-color: var(--warning); color: var(--warning);">
           Load Contradictory Scenario &rarr;
         </button>
       </form>
+      {% endif %}
     </div>
   </div>
 </div>
 
+{% if can_edit %}
 <div class="card" style="margin-top: 1.5rem;">
   <div class="card-header">
     <h2 class="card-title" style="color: var(--danger);">&#128465; Database Reset</h2>
@@ -99,4 +115,5 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endblock %}

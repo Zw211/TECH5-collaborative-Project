@@ -38,9 +38,12 @@
           {% endfor %}
         </ul>
       {% endif %}
-      {% if run.diagnostics.get('errors') %}
+      {# Infeasibility reasons are also errors; show each message once. #}
+      {% set other_errors = run.diagnostics.get('errors', [])
+           | reject('in', run.diagnostics.get('reasons', [])) | list %}
+      {% if other_errors %}
         <ul style="color: var(--danger); margin-left: 1.5rem; margin-bottom: 0.5rem;">
-          {% for err in run.diagnostics.get('errors') %}
+          {% for err in other_errors %}
             <li>{{ err }}</li>
           {% endfor %}
         </ul>

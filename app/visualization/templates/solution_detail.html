@@ -161,11 +161,11 @@
             <span>{{ p_info.assigned_count }} / {{ p_info.max_capacity }}</span>
           </div>
           <div style="background: #e2e8f0; height: 6px; border-radius: 3px; margin: 0.5rem 0; overflow: hidden;">
-            <div style="background: var(--primary); width: {{ p_info.utilization_pct }}%; height: 100%;"></div>
+            <div style="background: var(--primary); width: {{ p_info.utilization_pct | number(1) }}%; height: 100%;"></div>
           </div>
           <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between;">
             <span>Min: {{ p_info.min_capacity }}</span>
-            <span>{{ p_info.utilization_pct }}% filled</span>
+            <span>{{ p_info.utilization_pct | number(1) }}% filled</span>
           </div>
         </div>
       {% endfor %}
